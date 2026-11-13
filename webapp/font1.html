@@ -77,6 +77,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <div class="edit-controls">
           <label>亮度 <input id="editBrightness" type="range" min="-100" max="100" value="0"></label>
           <label>对比度 <input id="editContrast" type="range" min="-100" max="100" value="0"></label>
+          <label>黑场（压掉灰底）<input id="editBlack" type="range" min="0" max="90" value="0"></label>
+          <label>伽马（&gt;100 加深中间调）<input id="editGamma" type="range" min="50" max="200" value="100"></label>
           <label>橡皮大小 <input id="editBrush" type="range" min="4" max="120" value="28"></label>
           <div class="row"><button id="editErase" class="primary">橡皮</button><button id="editReset">重置</button></div>
           <div class="row"><button id="editSave" class="primary">保存并覆盖</button><button id="editCancel">取消</button></div>
@@ -140,12 +142,21 @@ function redrawEdit(){
   const c=editState.canvas, base=editState.base, mask=editState.mask;
   if(!c||!base) return;
   const b=+$("#editBrightness").value, k=+$("#editContrast").value;
+  const black=+$("#editBlack").value/100, gamma=+$("#editGamma").value/100;
   const ctx=editState.ctx;
-  ctx.clearRect(0,0,c.width,c.height);
-  ctx.save();
-  ctx.filter=`brightness(${(100+b)/100}) contrast(${(100+k)/100})`;
-  ctx.drawImage(base,0,0);
-  ctx.restore();
+  const srcCtx=base.getContext("2d", {willReadFrequently:true});
+  const src=srcCtx.getImageData(0,0,base.width,base.height);
+  const out=ctx.createImageData(base.width,base.height);
+  const sp=src.data, op=out.data;
+  for(let i=0;i<sp.length;i+=4){
+    let v=sp[i]; // grayscale source: R=G=B
+    v = (v-128)*(1+k/100)+128 + b*2.55;
+    if(black>0){ const th=black*0.85*255; v = v<=th ? 0 : (v-th)/(1-black*0.85); }
+    if(gamma!==1){ v = 255*Math.pow(Math.max(0,Math.min(1,v/255)), gamma); }
+    v=Math.max(0,Math.min(255,v));
+    op[i]=op[i+1]=op[i+2]=v; op[i+3]=255;
+  }
+  ctx.putImageData(out,0,0);
   ctx.drawImage(mask,0,0);
 }
 function editPoint(e){
@@ -171,15 +182,16 @@ async function openEditor(id){
   const mask=document.createElement("canvas"); mask.width=base.width; mask.height=base.height;
   const c=$("#editCanvas"); c.width=base.width; c.height=base.height;
   editState.id=id; editState.base=base; editState.mask=mask; editState.maskCtx=mask.getContext("2d"); editState.canvas=c; editState.ctx=c.getContext("2d"); editState.last=null;
-  $("#editBrightness").value=0; $("#editContrast").value=0; $("#editMsg").textContent="";
+  $("#editBrightness").value=0; $("#editContrast").value=0; $("#editBlack").value=0; $("#editGamma").value=100; $("#editMsg").textContent="";
   $("#editName").textContent=(v.char&&v.char!=="?"?v.char:"未识别")+" · "+base.width+"×"+base.height;
   $("#editModal").classList.add("show"); redrawEdit();
 }
 $("#editBrightness").oninput=redrawEdit; $("#editContrast").oninput=redrawEdit;
+$("#editBlack").oninput=redrawEdit; $("#editGamma").oninput=redrawEdit;
 $("#editCanvas").addEventListener("pointerdown",e=>{e.preventDefault();editState.drawing=true;editState.last=null;editState.canvas.setPointerCapture(e.pointerId);paintEdit(editPoint(e));});
 $("#editCanvas").addEventListener("pointermove",e=>{if(!editState.drawing)return;paintEdit(editPoint(e));});
 ["pointerup","pointercancel","pointerleave"].forEach(ev=>$("#editCanvas").addEventListener(ev,()=>{editState.drawing=false;editState.last=null;}));
-$("#editReset").onclick=()=>{editState.maskCtx.clearRect(0,0,editState.mask.width,editState.mask.height);$("#editBrightness").value=0;$("#editContrast").value=0;editState.last=null;redrawEdit();};
+$("#editReset").onclick=()=>{editState.maskCtx.clearRect(0,0,editState.mask.width,editState.mask.height);$("#editBrightness").value=0;$("#editContrast").value=0;$("#editBlack").value=0;$("#editGamma").value=100;editState.last=null;redrawEdit();};
 $("#editClose").onclick=closeEditor; $("#editCancel").onclick=closeEditor;
 $("#editModal").addEventListener("click",e=>{if(e.target.id==="editModal")closeEditor();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeEditor();});
