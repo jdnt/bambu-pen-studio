@@ -955,7 +955,8 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     ensure_dirs()
     try:
-        Handler._fontgen_resume_jobs(None)
+        dummy = object.__new__(Handler)
+        dummy._fontgen_resume_jobs()
     except Exception as e:
         print(f"[fontgen] resume failed: {e}")
     def _prewarm():
