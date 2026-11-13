@@ -688,6 +688,11 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             return self._json(400, {"ok": False, "error": str(e)})
         with FONTGEN_JOB_LOCK:
+            # always compare against the on-disk state, not a stale in-memory object
+            for jid in list(FONTGEN_JOBS.keys()):
+                disk = self._fontgen_job_load(jid)
+                if disk is not None:
+                    FONTGEN_JOBS[jid] = disk
             for j in FONTGEN_JOBS.values():
                 if j.get("status") in ("running", "stopping") and j.get("style") == style:
                     return self._json(409, {"ok": False, "error": f"{style} 已有批量任务在运行", "job": j.get("id")})
@@ -719,10 +724,11 @@ class Handler(SimpleHTTPRequestHandler):
             disk = self._fontgen_job_load(jid)
             if disk and disk.get("status") == "stopping":
                 job["index"] = i + 1; job["status"] = "cancelled"; job["updated"] = time.time()
-                self._fontgen_job_save(job); return
+                self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job; return
             job["index"] = i + 1; job["updated"] = time.time()
             self._fontgen_job_save(job)
-        job["status"] = "done"; job["current"] = ""; job["updated"] = time.time(); self._fontgen_job_save(job)
+        job["status"] = "done"; job["current"] = ""; job["updated"] = time.time()
+        self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job
 
     def _fontgen_batch_status(self):
         qs = parse_qs(urlparse(self.path).query); jid = (qs.get("job") or [""])[0]
@@ -759,7 +765,7 @@ class Handler(SimpleHTTPRequestHandler):
         job = self._fontgen_job_load(jid)
         if not job: return self._json(404, {"ok": False, "error": "job not found"})
         if job.get("status") == "running":
-            job["status"] = "stopping"; job["updated"] = time.time(); self._fontgen_job_save(job)
+            job["status"] = "stopping"; job["updated"] = time.time(); self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job
         return self._json(200, {"ok": True, "job": jid, "status": job.get("status")})
 
     def _fontgen_resume_jobs(self):
