@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# User data / training artifacts
+data/
+fontai_out/
+model_lab/inputs/
+model_lab/ckpt/
+webapp/fontgen_out/
+webapp/__pycache__/
+webapp/fontgen/jobs/
+
+# Models and fonts
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.ttf
+*.otf
+*.woff
+*.woff2
+*.zip
+
+# Generated screenshots at repo root
+/*.png
+/*.svg
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

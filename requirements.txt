@@ -1,0 +1,15 @@
+# Web + data
+numpy>=1.26
+Pillow>=10.0
+opencv-python-headless>=4.9
+
+# Font building
+fonttools>=4.50
+opencc-python-reimplemented>=0.1.7
+
+# Model runtime (install the CUDA build matching your driver)
+torch>=2.1
+torchvision>=0.16
+
+# Optional: browser automation for local checks
+# playwright>=1.40

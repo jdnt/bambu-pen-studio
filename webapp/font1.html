@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>字体 1 · 毛笔字采集</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--accent-soft:#dbeafe;--ok:#16a34a;--warn:#d97706}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+header{height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+h1{font-size:15px;margin:0;font-weight:650}.tabs{display:flex;gap:6px;margin-left:8px}.tabs a{font-size:12px;color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:8px}
+.tabs a.active{background:var(--accent-soft);color:var(--accent);font-weight:650}.tabs a:hover{background:#f3f4f6}
+.hr{margin-left:auto;font-size:12px;color:var(--muted)}
+main{max-width:1400px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:9px 13px;font-size:13px;font-weight:600;cursor:pointer}
+button:hover{background:#f9fafb}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.danger{color:#b91c1c}
+button:disabled{opacity:.45;cursor:not-allowed}
+.badge{font-size:12px;color:var(--muted)}.stat b{font-size:18px}.stat{display:flex;gap:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+#list{display:block}
+.group{margin:4px 0 22px;width:100%}.group h3{font-size:14px;margin:0 0 9px;display:flex;align-items:center;gap:8px}
+.group h3 .gchar{font-size:24px;font-weight:750;line-height:1}.group h3 .gcount{font-size:11px;color:var(--muted);font-weight:500}
+.group h3 .gsel{font-size:11px;color:var(--ok);font-weight:600}.group.unknown h3 .gchar{color:var(--warn)}
+.item{border:1px solid var(--line);border-radius:12px;padding:8px;background:#fff;position:relative}
+.item.selected{border-color:var(--ok);box-shadow:0 0 0 3px #dcfce7}
+.item img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;border-radius:8px;border:1px solid #f1f5f9;cursor:pointer}
+.item .char{width:100%;margin-top:7px;border:1px solid var(--line);border-radius:7px;padding:6px;text-align:center;font-size:18px;font-weight:650}
+.item .meta{font-size:10px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between}
+.item .acts{display:flex;gap:5px;margin-top:5px}.item .acts button{padding:5px 7px;font-size:11px;flex:1}
+.tag{position:absolute;left:12px;top:12px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:6px;font-size:10px;padding:2px 5px}
+.tag.unknown{color:#b45309;border-color:#fde68a;background:#fffbeb}
+.note{font-size:12px;color:var(--muted);line-height:1.6}.err{color:#b91c1c;font-size:12px;white-space:pre-wrap}
+#drop{border:2px dashed #cbd5e1;border-radius:12px;padding:20px;text-align:center;color:var(--muted);cursor:pointer}
+#drop:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>手写种子字采集板</h1>
+  <div class="tabs"><a href="/">字体 0 · 手写</a><a href="/font1.html" class="active">字体 1 · 毛笔</a></div>
+  <div class="hr">字体标签 1 · 图片采集</div>
+</header>
+<main>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div><b>毛笔字图片采集</b><div class="note">上传预处理照片 → 自动切割（不识别）→ 你手动填字 / 选版本。只训练已选中的已识别字。</div></div>
+      <div class="stat"><div><b id="statAll">0</b><span class="badge">图块</span></div><div><b id="statRec">0</b><span class="badge">已识别</span></div><div><b id="statSel">0</b><span class="badge">已选训练</span></div></div>
+    </div>
+    <div id="drop" style="margin-top:12px">点击选择图片，或把多张照片拖进来<br><span class="badge">支持 jpg/png，一次最多 30 张</span></div>
+    <input type="file" id="file" accept="image/*" multiple hidden>
+    <div class="row" style="margin-top:10px"><button class="primary" id="btnUpload" disabled>上传并自动切割</button><span id="uploadMsg" class="badge"></span></div>
+    <div id="errors" class="err"></div>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>图片块</b><span class="badge">新切出的块全部为 ?；手动填字后才会进入训练</span></div>
+    <div id="list"></div>
+  </div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+let files=[];
+const state={variants:[]};
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function render(){
+  $("#statAll").textContent=state.variants.length;
+  $("#statRec").textContent=state.variants.filter(v=>v.char&&v.char!=="?").length;
+  $("#statSel").textContent=state.variants.filter(v=>v.selected&&v.char&&v.char!=="?").length;
+  const groups={};
+  for(const v of state.variants){const k=(v.char&&v.char!=="?")?v.char:"?";(groups[k]=groups[k]||[]).push(v)}
+  const cjk=c=>/^[\u3400-\u9fff]$/.test(c);
+  const keys=Object.keys(groups).sort((a,b)=>{
+    if(a==="?")return 1; if(b==="?")return -1;
+    const ca=cjk(a), cb=cjk(b);
+    if(ca!==cb)return ca?-1:1;
+    return a.localeCompare(b,"zh");
+  });
+  const card=v=>{
+    const unk=!v.char||v.char==="?";
+    return `<div class="item ${v.selected?"selected":""}" data-id="${v.id}">
+      <span class="tag ${unk?"unknown":""}">${unk?"未识别":"已识别"}</span>
+      <img src="${v.url}" title="点击选为训练版本">
+      <input class="char" maxlength="1" value="${esc(v.char==="?"?"":v.char)}" placeholder="?">
+      <div class="meta"><span>${esc(v.sourceName||"")}</span><span>${v.size?v.size[0]+"×"+v.size[1]:""}</span></div>
+      <div class="acts"><button data-act="select" ${unk?"disabled":""}>${v.selected?"已选":"选它"}</button><button data-act="del" class="danger">删除</button></div>
+    </div>`;
+  };
+  $("#list").innerHTML=keys.map(k=>{
+    const vs=groups[k].slice().sort((a,b)=>(b.selected?1:0)-(a.selected?1:0));
+    const sel=vs.filter(v=>v.selected).length;
+    return `<section class="group ${k==="?"?"unknown":""}">
+      <h3><span class="gchar">${k==="?"?"未识别":esc(k)}</span><span class="gcount">${vs.length} 个版本</span>${sel?`<span class="gsel">已选 ${sel}</span>`:""}</h3>
+      <div class="grid">${vs.map(card).join("")}</div>
+    </section>`;
+  }).join("");
+  document.querySelectorAll(".item").forEach(el=>{
+    const id=el.dataset.id;
+    el.querySelector("img").onclick=()=>select(id);
+    el.querySelector("[data-act=select]").onclick=()=>select(id);
+    el.querySelector("[data-act=del]").onclick=()=>del(id);
+    const inp=el.querySelector("input.char");
+    inp.onchange=()=>saveLabel(id,inp.value);
+  });
+}
+async function load(){const r=await fetch("/api/font1/state");const j=await r.json();state.variants=j.variants||[];render()}
+async function saveLabel(id,val){
+  const ch=(val||"").trim()[0]||"?";
+  const r=await fetch("/api/font1/label",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,char:ch})});
+  const j=await r.json(); if(!j.ok){alert(j.error||"保存失败");return} state.variants=j.variants;render();
+}
+async function select(id){
+  const r=await fetch("/api/font1/select",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+  const j=await r.json(); if(!j.ok){alert(j.error||"选择失败");return} state.variants=j.variants;render();
+}
+async function del(id){
+  if(!confirm("删除这个图片块？"))return;
+  const r=await fetch("/api/font1/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+  const j=await r.json(); if(!j.ok){alert(j.error||"删除失败");return} state.variants=j.variants;render();
+}
+function readFile(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res({name:f.name,data:r.result});r.onerror=rej;r.readAsDataURL(f)})}
+async function upload(){
+  if(!files.length)return;
+  const btn=$("#btnUpload");btn.disabled=true;btn.textContent="上传/切字中…";$("#uploadMsg").textContent="";$("#errors").textContent="";
+  try{
+    const payload=await Promise.all(files.map(readFile));
+    const r=await fetch("/api/font1/upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payload})});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error||"上传失败");
+    state.variants=j.variants||[];
+    $("#uploadMsg").textContent=`新增 ${j.count} 个图块`;
+    if(j.errors&&j.errors.length)$("#errors").textContent=j.errors.join("\n");
+    files=[];$("#file").value="";render();
+  }catch(e){$("#errors").textContent=e.message}finally{btn.disabled=false;btn.textContent="上传并自动切割"}
+}
+$("#drop").onclick=()=>$("#file").click();
+$("#drop").ondragover=e=>{e.preventDefault();$("#drop").style.borderColor="var(--accent)"};
+$("#drop").ondragleave=()=>{$("#drop").style.borderColor="#cbd5e1"};
+$("#drop").ondrop=e=>{e.preventDefault();$("#drop").style.borderColor="#cbd5e1";files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/")).slice(0,30);$("#btnUpload").disabled=!files.length;$("#uploadMsg").textContent=`已选 ${files.length} 张，点上传`;};
+$("#file").onchange=e=>{files=[...e.target.files].filter(f=>f.type.startsWith("image/")).slice(0,30);$("#btnUpload").disabled=!files.length;$("#uploadMsg").textContent=`已选 ${files.length} 张，点上传`;};
+$("#btnUpload").onclick=upload;
+load();
+</script>
+</body>
+</html>

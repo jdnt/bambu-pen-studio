@@ -1,0 +1,1560 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>手写种子字采集板 · Seed Glyph Pad</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#16181d; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#2563eb; --accent-soft:#dbeafe;
+    --ok:#16a34a; --warn:#d97706; --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(0,0,0,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  header{
+    height:56px; display:flex; align-items:center; gap:14px;
+    padding:0 18px; background:var(--card); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10;
+  }
+  header h1{font-size:15px; margin:0; font-weight:650; letter-spacing:.2px}
+  .badge{font-size:12px; color:var(--muted)}
+  .progress{flex:1; max-width:360px; height:8px; background:#eef0f3; border-radius:999px; overflow:hidden}
+  .progress > i{display:block; height:100%; width:0; background:linear-gradient(90deg,#60a5fa,#2563eb); border-radius:999px; transition:width .18s}
+  .header-right{margin-left:auto; display:flex; align-items:center; gap:10px}
+  main{
+    display:grid; grid-template-columns:268px minmax(360px,1fr) 340px;
+    gap:14px; padding:14px; height:calc(100dvh - 56px);
+  }
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); min-height:0}
+  .card h2{font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:14px 16px 10px; font-weight:650}
+  /* ---- grid ---- */
+  #gridPane{display:flex; flex-direction:column; min-height:0}
+  #charGrid{
+    overflow:auto; padding:0 12px 14px; display:grid;
+    grid-template-columns:repeat(5,1fr); gap:8px; align-content:start;
+  }
+  .cell{
+    position:relative; aspect-ratio:1; border:1px solid var(--line); border-radius:10px;
+    background:#fff; color:var(--ink); font-size:22px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; line-height:1;
+    transition:border-color .12s, box-shadow .12s, transform .06s;
+  }
+  .cell:hover{border-color:#c7d2fe}
+  .cell:active{transform:scale(.97)}
+  .cell.active{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+  .cell.saved{background:#f0fdf4; border-color:#bbf7d0}
+  .cell.unsaved{background:#fffbeb; border-color:#fde68a}
+  .cell .dot{position:absolute; right:5px; bottom:5px; width:7px; height:7px; border-radius:50%; background:#d1d5db}
+  .cell.saved .dot{background:var(--ok)}
+  .cell.unsaved .dot{background:var(--warn)}
+  .cell .idx{position:absolute; left:4px; top:3px; font-size:9px; font-weight:500; color:#9ca3af}
+  /* ---- canvas ---- */
+  #canvasPane{display:flex; flex-direction:column; align-items:center; padding:16px; min-height:0}
+  .char-title{font-size:13px; color:var(--muted); margin:2px 0 10px; display:flex; gap:8px; align-items:center}
+  .char-title b{font-size:26px; color:var(--ink); font-weight:650}
+  .pad-wrap{position:relative; width:min(100%, 440px); aspect-ratio:1; border-radius:16px; overflow:hidden; border:1px solid var(--line); background:#fff}
+  #pad{display:block; width:100%; height:100%; cursor:crosshair; touch-action:none; user-select:none; -webkit-user-select:none}
+  .pad-wrap .hint{position:absolute; left:12px; bottom:10px; font-size:11px; color:#9ca3af; pointer-events:none}
+  .tools{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:14px; max-width:560px}
+  button{
+    appearance:none; border:1px solid var(--line); background:#fff; color:var(--ink);
+    border-radius:10px; padding:9px 13px; font-size:13px; font-weight:600; cursor:pointer;
+    transition:background .12s,border-color .12s,transform .06s;
+  }
+  button:hover{background:#f9fafb; border-color:#d1d5db}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  button.primary:hover{background:#1d4ed8}
+  button.ghost{background:transparent}
+  button.danger{color:#b91c1c}
+  button:disabled{opacity:.45; cursor:not-allowed}
+  .kbd{font-size:11px; color:var(--muted); font-weight:500}
+  /* ---- side ---- */
+  #side{display:flex; flex-direction:column; min-height:0; overflow:auto}
+  .pane{padding:0 16px 14px; border-bottom:1px solid var(--line)}
+  .pane:last-child{border-bottom:0}
+  textarea{
+    width:100%; min-height:92px; resize:vertical; border:1px solid var(--line); border-radius:10px;
+    padding:10px; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink); background:#fff;
+  }
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
+  .row label{font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center}
+  input[type=range]{width:120px; accent-color:var(--accent)}
+  .stat{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 4px}
+  .stat div{background:#f9fafb; border:1px solid var(--line); border-radius:10px; padding:8px 10px}
+  .stat b{display:block; font-size:18px}
+  .stat span{font-size:11px; color:var(--muted)}
+  .toast{
+    position:fixed; left:50%; bottom:26px; transform:translate(-50%,14px);
+    background:#111827; color:#fff; padding:10px 14px; border-radius:10px; font-size:13px;
+    opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; z-index:50; max-width:90vw;
+  }
+  .toast.show{opacity:1; transform:translate(-50%,0)}
+  .toast.err{background:#991b1b}
+  .note{font-size:11px; color:var(--muted); line-height:1.5}
+  @media (max-width: 1080px){
+    main{grid-template-columns:1fr; height:auto}
+    #gridPane{order:2; max-height:42vh}
+    #canvasPane{order:1}
+    #side{order:3}
+    header{flex-wrap:wrap; height:auto; padding:10px 14px; gap:8px}
+    .progress{max-width:none; order:3; flex-basis:100%}
+  }
+
+  /* ---- layout ---- */
+  .layout-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100;display:none;align-items:center;justify-content:center;padding:16px}
+  .layout-overlay.show{display:flex}
+  .layout-shell{width:min(1280px,96vw);height:92vh;background:#fff;border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .layout-head{height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+  .layout-head b{font-size:15px}
+  .layout-head .badge{margin-right:auto}
+  .layout-body{display:grid;grid-template-columns:360px 1fr;min-height:0;flex:1}
+  .layout-controls{padding:14px 16px;overflow:auto;border-right:1px solid var(--line)}
+  .layout-controls label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  .layout-controls textarea{min-height:110px}
+  .layout-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  .layout-grid input,.layout-grid select{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 8px;font:13px/1.4 inherit;background:#fff;color:var(--ink)}
+  .layout-preview-wrap{background:#eef0f3;padding:16px;display:flex;flex-direction:column;align-items:center;overflow:auto;min-width:0}
+  .layout-preview-wrap .pager{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px;color:var(--muted)}
+  #layoutPreviewImg{display:block;max-width:100%;max-height:calc(92vh - 150px);background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+  #layoutPreviewBox{position:relative;display:inline-block;max-width:100%}
+  #layoutHits{position:absolute;inset:0;pointer-events:none}
+  .layout-hit{position:absolute;pointer-events:auto;background:transparent;border:1px solid transparent;padding:0;cursor:pointer;border-radius:2px;color:#2563eb;font-size:16px;line-height:1}
+  .layout-hit span{opacity:0;transition:opacity .12s;background:#fff;border-radius:50%;padding:1px 2px;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+  .layout-hit:hover{border-color:#2563eb;background:rgba(37,99,235,.08)}
+  .layout-hit:hover span{opacity:1}
+  .layout-hit.busy span{opacity:1;background:#fde68a}
+  #layoutMeta{margin-top:10px;text-align:center}
+  @media (max-width:900px){
+    .layout-body{grid-template-columns:1fr}
+    .layout-controls{max-height:42vh;border-right:0;border-bottom:1px solid var(--line)}
+    #layoutPreviewImg{max-height:45vh}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>手写种子字采集板</h1>
+  <span class="badge" id="fontBadge">myhand</span><a href="/font1.html" style="font-size:12px;color:#2563eb;text-decoration:none;font-weight:650;padding:6px 10px;border:1px solid #dbeafe;background:#eff6ff;border-radius:8px">字体 1 · 毛笔</a>
+  <div class="progress" title="已保存进度"><i id="progressBar"></i></div>
+  <div class="header-right">
+    <span class="badge" id="progressText">0 / 0</span>
+    <button class="ghost" id="btnLayout" title="排版并导出单线 SVG">排版输出</button>
+    <a class="ghost" href="/fontgen.html" title="逐字审核并生成字体" style="text-decoration:none;display:inline-flex;align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff;font:13px inherit">字体生成</a>
+    <button class="ghost" id="btnHelp" title="使用说明">说明</button>
+  </div>
+</header>
+
+<main>
+  <aside class="card" id="gridPane">
+    <h2>种子字 · <span id="gridCount">0</span></h2>
+    <div id="charGrid"></div>
+  </aside>
+
+  <section class="card" id="canvasPane">
+    <div class="char-title">当前：<b id="charLabel">—</b><span id="charState" class="badge"></span></div>
+    <div class="pad-wrap">
+      <canvas id="pad" width="256" height="256"></canvas>
+      <div class="hint">用数位笔/鼠标写；支持压感，采样已尽量灵敏</div>
+    </div>
+    <div class="tools">
+      <button class="primary" id="btnSave" title="保存当前字到服务器">保存 <span class="kbd">Ctrl+S</span></button>
+      <button id="btnUndo">撤销 <span class="kbd">Ctrl+Z</span></button>
+      <button id="btnClear">重写</button>
+      <button id="btnPrev">← 上一字</button>
+      <button id="btnNext">下一字 →</button>
+    </div>
+    <div class="tools">
+      <button class="ghost" id="btnRestore" title="从服务器重新拉取字表与笔迹">从服务器刷新</button>
+      <button class="ghost" id="btnExport">导出 ZIP</button>
+    </div>
+  </section>
+
+  <aside class="card" id="side">
+    <div class="pane">
+      <h2>字表</h2>
+      <textarea id="seedText" spellcheck="false" placeholder="粘贴一段文字，或直接输入种子字；会自动去重。"></textarea>
+      <div class="row">
+        <button id="btnApply">应用字表</button>
+        <button id="btnAppend">追加到字表</button>
+        <button class="ghost" id="btnCommon50">常用 50</button>
+        <button class="ghost" id="btnCommon100">常用 100</button>
+        <button class="ghost" id="btnBatch2">追加第二批 100</button>
+        <button class="ghost" id="btnBatch3">追加第三批 100</button>
+        <button class="ghost" id="btnBatch4">追加第四批 200</button>
+        <button class="ghost" id="btnBatch5">追加第五批 200</button>
+        <button class="ghost" id="btnPunct">追加标点 26</button>
+        <button class="ghost" id="btnBatch6">追加第六批 200</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="optLatin"> 保留英文/数字</label>
+        <label><input type="checkbox" id="optAutoNext" checked> 保存后下一字</label>
+      </div>
+    </div>
+
+    <div class="pane">
+      <h2>笔迹</h2>
+      <div class="stat">
+        <div><b id="statSaved">0</b><span>已保存</span></div>
+        <div><b id="statStrokes">0</b><span>当前笔画</span></div>
+      </div>
+      <div class="row">
+        <label>笔宽 <input type="range" id="optWidth" min="2" max="16" step="1" value="4"><span id="widthVal">4</span></label>
+        <label><input type="checkbox" id="optPressure"> 压感变宽</label>
+      </div>
+      <p class="note">建议：黑笔、居中、占格约 80%，不要写太小。保存会生成 256×256 PNG（黑字白底），按字符命名，可直接用于 zi2zi-JiT 数据集。</p>
+    </div>
+
+    <div class="pane">
+      <h2>导出 / 上传</h2>
+      <div class="row">
+        <label>字体名 <input id="fontName" style="width:110px;border:1px solid var(--line);border-radius:8px;padding:7px 8px" value="myhand"></label>
+      </div>
+      <p class="note" id="serverNote">页面由训练服务器打开时，“保存并上传”会把 ZIP 直接解到服务器；否则会下载 ZIP。</p>
+      <div class="row">
+        <button id="btnReset" class="danger ghost">清空本机数据</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<div class="layout-overlay" id="layoutOverlay">
+  <div class="layout-shell">
+    <div class="layout-head">
+      <b>排版输出 · 单线 SVG</b>
+      <span class="badge" id="layoutInfo"></span>
+      <button id="btnLayoutClose">关闭</button>
+    </div>
+    <div class="layout-body">
+      <div class="layout-controls">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <label style="margin:0">正文（只用本机已写笔画；缺字显示虚线框）</label>
+          <button type="button" id="btnZhConvert" style="padding:2px 8px;font-size:12px">简→繁</button>
+        </div>
+        <textarea id="layoutText" spellcheck="false">你好这是我自己写的字</textarea>
+        <div class="layout-grid">
+          <label>纸型
+            <select id="layoutPaper">
+              <option value="a4">A4 210×297</option>
+              <option value="a5">A5 148×210</option>
+              <option value="custom">自定义</option>
+            </select>
+          </label>
+          <label>方向
+            <select id="layoutOrient">
+              <option value="portrait">竖向</option>
+              <option value="landscape">横向</option>
+            </select>
+          </label>
+          <label>宽 mm<input id="layoutW" type="number" value="210" step="1"></label>
+          <label>高 mm<input id="layoutH" type="number" value="297" step="1"></label>
+          <label>页边距 mm<input id="layoutMargin" type="number" value="15" step="1"></label>
+          <label>字号 mm<input id="layoutFont" type="number" value="20" step="0.5"></label>
+          <label>行距 ×<input id="layoutLine" type="number" value="1" step="0.05"></label>
+          <label>字距 mm<input id="layoutSpacing" type="number" value="0.3" step="0.1"></label>
+          <label>笔宽 mm<input id="layoutPen" type="number" value="0.5" step="0.05"></label>
+          <label>模型
+            <select id="layoutModel">
+              <option value="zi2zi">zi2zi-JiT（默认/快）</option>
+              <option value="fontdiffuser">FontDiffuser（测试/96px）</option>
+            </select>
+          </label>
+          <label>风格
+            <select id="layoutStyle">
+              <option value="handwritten">手写体</option>
+              <option value="brush">毛笔</option>
+            </select>
+          </label>
+          <label>版式
+            <select id="layoutDir">
+              <option value="horizontal">横排（从左往右）</option>
+              <option value="vertical">竖排（从右往左）</option>
+            </select>
+          </label>
+          <label>对齐
+            <select id="layoutAlign">
+              <option value="left">左对齐</option>
+              <option value="center">居中</option>
+              <option value="right">右对齐</option>
+            </select>
+          </label>
+        </div>
+        <label style="display:flex;gap:6px;align-items:center;margin-top:10px">
+          <input type="checkbox" id="layoutHidePunct"> 隐藏标点（占半个字）
+        </label>
+        <label style="display:flex;gap:6px;align-items:center;margin-top:6px">
+          <input type="checkbox" id="layoutNormalize"> 按字裁切并居中（字号不一样时用）
+        </label>
+        <div class="row">
+          <button class="primary" id="btnLayoutRender">生成预览</button>
+          <button id="btnAiGlyph" title="用训练好的模型补当前正文里缺的字（首次较慢）">AI 生成缺字</button>
+          <button id="btnAiAll" title="正文全部字都用 AI 重画（覆盖手写）">全部 AI 生成</button>
+          <button id="btnAiClear" class="ghost">恢复手写</button>
+          <button id="btnLayoutSvg">下载当前页 SVG</button>
+          <button id="btnLayoutPng">下载当前图片</button>
+          <button id="btnLayoutZip">下载多页 ZIP</button>
+        </div>
+        <p class="note" id="layoutMissing"></p>
+        <p class="note" id="layoutAiInfo"></p>
+        <p class="note">导出的 SVG 是毫米单位、只含 path、fill:none，可直接拖进 Bambu Suite 设为“线条绘画”。</p>
+      </div>
+      <div class="layout-preview-wrap">
+        <div class="pager">
+          <button id="btnLayoutPrev">← 上一页</button>
+          <span id="layoutPageInfo">—</span>
+          <button id="btnLayoutNext">下一页 →</button>
+        </div>
+        <div id="layoutPreviewBox" style="position:relative;display:inline-block;max-width:100%">
+          <img id="layoutPreviewImg" alt="排版预览">
+          <div id="layoutHits"></div>
+        </div>
+        <div class="note" id="layoutCharStatus" aria-live="polite" style="min-height:1.4em;color:#2563eb;font-weight:600"></div>
+        <div class="note" id="layoutMeta"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+"use strict";
+
+/* ============================== 基础常量 ============================== */
+const INNER = 256;
+const STORE_KEY = "hwpad.v1";
+const DEFAULT_CHARS =
+  "的一是不了人我在有他这为之大来以个中上们到说国和地也子时道出而要于就下得可你年生自会那后能对着事其里所去行过家十用发天如然作方成者多日都三小军二无同么经法当起与好看学进种将还分此心前面又定见只主没公从";
+const COMMON50 = Array.from(DEFAULT_CHARS).slice(0, 50).join("");
+const BATCH2 = "把第样想开美总情己最女但现些手意动期它头长儿回位爱老因很给名间斯知世什两次使身被高已亲话常活正感明问力理尔点文几本特做外孩相西果走月实向声车全信重机工物气每并别口足目耳刀弓矢戈舟门户衣食米土田木禾竹草";
+const BATCH3 = "真打太新比才便夫再书部水像眼等体加电界利听少先由死安写性马光白或住难望教命花结乐色更拉东神记处让母父应直字场平报友关放至张认接告入笑内英候民岁往何度山觉路带万男边风解叫任金快原吃妈她哪谁怎吗吧呢啊跟及";
+const BATCH5 = "联妇纪基买志静阿诗独复痛消社算义竟确酒需单治卡幸兰念举仅钟怕共毛句息功官待究穿室易游程号居考突皮费倒价图具刚脑永歌响商礼细专黄块脚味灵改据般破引仍存众注笔甚某沉血备习校默务微娘须试怀料调广苏显赛查密议底列富梦错座参八除跑亮假印设线温虽掉京初养香停际致阳纸李纳验助左右旁呀哦嗯哈喂诶唉啦嘛呗哇嘿哟咯喽帮抱推抬扔丢捡洗刷擦扫拖剪缝煮炒蒸烤炸煎尝咬嚼吞吐呼吸咳嗽喷闻摸碰踢踩蹲爬滚翻借租换修拆搬骑锁挂贴撕咱";
+const BATCH6 = "埃挨哎哀皑癌蔼矮艾碍隘鞍氨俺按暗岸胺案肮昂盎凹敖熬翱袄傲奥懊澳芭捌扒叭笆疤拔跋靶耙坝霸罢柏摆佰败拜稗斑班扳颁板版扮拌伴瓣绊邦梆榜膀绑棒磅蚌镑傍谤苞胞褒剥薄雹堡饱宝暴豹鲍爆杯碑悲卑辈背贝钡倍狈惫焙奔苯笨崩绷甭泵蹦迸逼鼻鄙彼碧蓖蔽毕毙毖币庇痹闭敝弊辟壁臂避陛鞭编贬扁卞辨辩辫遍标彪膘鳖憋瘪彬斌濒滨宾摈兵冰柄丙秉饼炳玻菠播拨钵波博勃搏铂箔伯帛舶脖膊渤泊驳捕卜哺补埠簿怖猜裁材财睬采彩菜蔡餐蚕残惭惨灿苍舱仓沧";
+const PUNCT = "，。！？；：、（）《》“”‘’—…·「」『』【】〔〕";
+const BATCH4 = "却海受表德克代员许俩变通师立象数四失满战远格士音轻条病始达深完今提求清王化空业思切非找片罗钱语元喜曾离飞科言干流欢约各即指合反题必该论交终林请医晚制球决传画保读运则房早院量苦火布品近坐产答星精视五连司巴奇管类未朋且婚台夜青北队久乎越观落尽形影红爸百令周识步希亚术留市半热送兴造谈容极随演收首根讲整式取照办强石古华拿计您装似双妻尼转诉称丽客南领节站黑刻统断福城故历惊脸选包紧争另建维绝树系伤示愿持千史准";
+
+/* ============================== 状态 ============================== */
+let state = {
+  fontName: "myhand",
+  seedText: DEFAULT_CHARS,
+  chars: [],
+  strokes: {},     // char -> array of strokes; stroke = [{x,y,p,t}]
+  saved: {},       // char -> timestamp
+  current: 0,
+  width: 4,
+  pressure: false,
+  autoNext: true,
+  allowLatin: false
+};
+let currentStroke = null;
+let drawing = false;
+const savedBlobs = new Map();   // char -> Blob (内存缓存，刷新后可由 strokes 重建)
+
+const $ = (s) => document.querySelector(s);
+const pad = $("#pad");
+const ctx = pad.getContext("2d");
+
+/* ============================== 持久化 ============================== */
+function persist() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      fontName: state.fontName, seedText: state.seedText, chars: state.chars,
+      strokes: state.strokes, saved: state.saved, current: state.current,
+      width: state.width, pressure: state.pressure, autoNext: state.autoNext,
+      allowLatin: state.allowLatin
+    }));
+  } catch (e) { /* quota 忽略 */ }
+}
+function restore() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const o = JSON.parse(raw);
+    if (!o || !Array.isArray(o.chars) || !o.chars.length) return false;
+    Object.assign(state, o);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ============================== 字表 ============================== */
+function parseChars(text, allowLatin) {
+  const out = [];
+  const seen = new Set();
+  for (const ch of Array.from(text || "")) {
+    if (/\s/.test(ch)) continue;
+    const isCJK = /[\u3400-\u9fff\uf900-\ufaff]/.test(ch);
+    const isLatin = allowLatin && /[A-Za-z0-9]/.test(ch);
+    const isPunct = /[\u3000-\u303f\uff00-\uffef\u2000-\u206f\u00b7—…]/.test(ch);
+    if (!isCJK && !isLatin && !isPunct) continue;
+    if (seen.has(ch)) continue;
+    seen.add(ch); out.push(ch);
+  }
+  return out;
+}
+
+function appendSeed(text) {
+  const add = parseChars(text, state.allowLatin).filter(c => !state.chars.includes(c));
+  if (!add.length) { toast("没有新字可追加", true); return; }
+  const firstNew = state.chars.length;
+  state.chars = state.chars.concat(add);
+  state.seedText = state.chars.join("");
+  $("#seedText").value = state.seedText;
+  renderGrid();
+  selectChar(firstNew);
+  persist();
+  toast(`已追加 ${add.length} 个新字，共 ${state.chars.length} 个`);
+}
+
+function applySeed(text) {
+  const chars = parseChars(text, state.allowLatin);
+  if (!chars.length) { toast("字表里没有可用的汉字", true); return; }
+  const lost = Object.keys(state.strokes).filter(c => !chars.includes(c));
+  if (lost.length && !confirm(`新字表不包含 ${lost.length} 个已写的字，继续会删除它们的笔迹。\n如果只是想补字，请用“追加到字表”。`)) return;
+  state.seedText = text;
+  state.chars = chars;
+  if (state.current >= chars.length) state.current = 0;
+  // 清理不在字表里的笔迹
+  for (const k of Object.keys(state.strokes)) if (!chars.includes(k)) delete state.strokes[k];
+  for (const k of Object.keys(state.saved)) if (!chars.includes(k)) delete state.saved[k];
+  savedBlobs.clear();
+  renderGrid(); selectChar(state.current); persist();
+}
+
+/* ============================== 渲染 ============================== */
+function renderGrid() {
+  const grid = $("#charGrid");
+  grid.innerHTML = "";
+  state.chars.forEach((ch, i) => {
+    const b = document.createElement("button");
+    b.className = "cell";
+    if (state.saved[ch]) b.classList.add("saved");
+    else if (state.strokes[ch] && state.strokes[ch].length) b.classList.add("unsaved");
+    if (i === state.current) b.classList.add("active");
+    b.title = ch + (state.saved[ch] ? " · 已保存" : (state.strokes[ch]?.length ? " · 未保存" : " · 空"));
+    b.innerHTML = `<span class="idx">${i + 1}</span>${ch}<span class="dot"></span>`;
+    b.addEventListener("click", () => selectChar(i));
+    grid.appendChild(b);
+  });
+  $("#gridCount").textContent = state.chars.length;
+  updateProgress();
+}
+
+function updateProgress() {
+  const total = state.chars.length;
+  const saved = state.chars.filter(c => state.saved[c]).length;
+  const pct = total ? Math.round(saved / total * 100) : 0;
+  $("#progressBar").style.width = pct + "%";
+  $("#progressText").textContent = `${saved} / ${total}`;
+  $("#statSaved").textContent = saved;
+}
+
+function selectChar(i) {
+  if (!state.chars.length) return;
+  state.current = Math.max(0, Math.min(i, state.chars.length - 1));
+  const ch = state.chars[state.current];
+  $("#charLabel").textContent = ch;
+  const st = state.saved[ch] ? "已保存" : (state.strokes[ch]?.length ? "未保存" : "空");
+  $("#charState").textContent = st;
+  $("#statStrokes").textContent = (state.strokes[ch] || []).length;
+  renderPad();
+  renderGrid();
+  persist();
+}
+
+/* ============================== 画布 ============================== */
+function clearPad() {
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, INNER, INNER);
+}
+function strokeWidth(p) {
+  const base = state.width;
+  if (!state.pressure || !p) return base;
+  return Math.max(2, Math.min(base * 1.9, base * (0.55 + 0.95 * p)));
+}
+function drawDot(pt) {
+  const w = strokeWidth(pt.p);
+  ctx.beginPath();
+  ctx.fillStyle = "#111111";
+  ctx.arc(pt.x, pt.y, w / 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+function drawSegment(a, b) {
+  const w = strokeWidth(b.p);
+  ctx.beginPath();
+  ctx.strokeStyle = "#111111";
+  ctx.lineWidth = w;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+}
+function drawGuides() {
+  const m = INNER * 0.06;
+  ctx.save();
+  ctx.strokeStyle = "#eef2f7";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(m, m, INNER - 2 * m, INNER - 2 * m);
+  ctx.beginPath();
+  ctx.moveTo(INNER / 2, m); ctx.lineTo(INNER / 2, INNER - m);
+  ctx.moveTo(m, INNER / 2); ctx.lineTo(INNER - m, INNER / 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function renderPad() {
+  clearPad();
+  drawGuides();
+  const ch = state.chars[state.current];
+  const strokes = state.strokes[ch] || [];
+  for (const s of strokes) {
+    if (!s.length) continue;
+    if (s.length === 1) { drawDot(s[0]); continue; }
+    for (let i = 1; i < s.length; i++) drawSegment(s[i - 1], s[i]);
+  }
+}
+
+function toPadPoint(e) {
+  const r = pad.getBoundingClientRect();
+  const x = (e.clientX - r.left) * INNER / r.width;
+  const y = (e.clientY - r.top) * INNER / r.height;
+  const p = (typeof e.pressure === "number" && e.pressure > 0 && e.pressure < 1) ? e.pressure : 0.5;
+  return { x: Math.max(0, Math.min(INNER, x)), y: Math.max(0, Math.min(INNER, y)), p, t: e.timeStamp };
+}
+
+function addPoint(pt) {
+  if (!currentStroke) return;
+  const last = currentStroke[currentStroke.length - 1];
+  if (last) {
+    const d = Math.hypot(pt.x - last.x, pt.y - last.y);
+    if (d < 0.55) return;       // 去掉重复点，但保留高频采样
+  }
+  currentStroke.push(pt);
+  if (currentStroke.length === 1) drawDot(pt);
+  else drawSegment(last, pt);
+}
+
+function endStroke() {
+  if (!currentStroke) return;
+  if (currentStroke.length) {
+    const ch = state.chars[state.current];
+    (state.strokes[ch] ||= []).push(currentStroke);
+    delete state.saved[ch];
+    savedBlobs.delete(ch);
+    persist();
+    renderGrid();
+  }
+  currentStroke = null;
+  drawing = false;
+}
+
+pad.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  e.preventDefault();
+  try { pad.setPointerCapture(e.pointerId); } catch (_) {}
+  drawing = true;
+  currentStroke = [];
+  addPoint(toPadPoint(e));
+});
+pad.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  e.preventDefault();
+  const events = (typeof e.getCoalescedEvents === "function" && e.getCoalescedEvents().length)
+    ? e.getCoalescedEvents() : [e];
+  for (const ev of events) addPoint(toPadPoint(ev));
+});
+// Chromium: pointerrawupdate 比 pointermove 更密；距离过滤会去掉重复点。
+if ("onpointerrawupdate" in pad) {
+  pad.addEventListener("pointerrawupdate", (e) => {
+    if (!drawing) return;
+    const events = (typeof e.getCoalescedEvents === "function" && e.getCoalescedEvents().length)
+      ? e.getCoalescedEvents() : [e];
+    for (const ev of events) addPoint(toPadPoint(ev));
+  });
+}
+function finish(e) {
+  if (!drawing) return;
+  e.preventDefault();
+  try { pad.releasePointerCapture(e.pointerId); } catch (_) {}
+  endStroke();
+}
+pad.addEventListener("pointerup", finish);
+pad.addEventListener("pointercancel", finish);
+pad.addEventListener("lostpointercapture", () => { if (drawing) endStroke(); });
+pad.addEventListener("contextmenu", (e) => e.preventDefault());
+
+/* ============================== 保存 / 撤销 / 重写 ============================== */
+function renderToCanvas(target, ch, withPressure) {
+  const c = target || document.createElement("canvas");
+  c.width = INNER; c.height = INNER;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, INNER, INNER);
+  g.strokeStyle = "#111111"; g.fillStyle = "#111111";
+  g.lineCap = "round"; g.lineJoin = "round";
+  const strokes = state.strokes[ch] || [];
+  for (const s of strokes) {
+    if (!s.length) continue;
+    if (s.length === 1) {
+      const w = withPressure ? Math.max(2, state.width * (0.55 + 0.95 * (s[0].p || 0.5))) : state.width;
+      g.beginPath(); g.arc(s[0].x, s[0].y, w / 2, 0, Math.PI * 2); g.fill(); continue;
+    }
+    for (let i = 1; i < s.length; i++) {
+      const a = s[i - 1], b = s[i];
+      const w = withPressure ? Math.max(2, state.width * (0.55 + 0.95 * (b.p || 0.5))) : state.width;
+      g.beginPath(); g.lineWidth = w; g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+  }
+  return c;
+}
+
+function canvasToBlob(c) {
+  return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+}
+
+async function restoreFromServer(silent = false) {
+  try {
+    const r = await fetch("/api/state");
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    state.chars = j.chars || state.chars;
+    state.strokes = j.strokes || {};
+    state.saved = j.saved || {};
+    state.seedText = state.chars.join("");
+    state.current = Math.min(state.current || 0, Math.max(0, state.chars.length - 1));
+    $("#seedText").value = state.seedText;
+    savedBlobs.clear();
+    persist(); renderGrid(); selectChar(state.current);
+    if (!silent) toast(`服务器字表：${state.chars.length} 字，笔迹 ${Object.keys(state.strokes).length} 个`);
+    return {chars: state.chars.length, strokes: Object.keys(state.strokes).length};
+  } catch (e) {
+    if (!silent) toast("服务器刷新失败：" + e.message, true);
+    return {chars: 0, strokes: 0, error: e.message};
+  }
+}
+
+
+async function uploadAll() {
+  const chars = state.chars.filter(c => state.strokes[c]?.length);
+  if (!chars.length) { toast("还没有任何笔迹", true); return false; }
+  const blob = await buildZipBlob();
+  try {
+    const res = await postUpload(blob);
+    toast(`已上传到服务器 · ${res.count} 个字形 → ${res.dir || ""}`);
+    return true;
+  } catch (err) {
+    downloadBlob(blob, zipName());
+    toast("上传失败，已改为下载 ZIP：" + err.message, true);
+    return false;
+  }
+}
+
+function nextUnsaved() {
+  let next = state.current + 1;
+  while (next < state.chars.length && state.saved[state.chars[next]]) next++;
+  if (next >= state.chars.length) next = state.chars.findIndex(c => !state.saved[c]);
+  if (next >= 0) selectChar(next);
+}
+
+async function saveCurrent(opts = {}) {
+  const ch = state.chars[state.current];
+  if (!ch) return false;
+  const strokes = state.strokes[ch] || [];
+  if (!strokes.length) {
+    toast("先写一笔再保存", true);
+    return false;
+  }
+  const c = renderToCanvas(null, ch, state.pressure);
+  const blob = await canvasToBlob(c);
+  const dataUrl = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+  try {
+    const r = await fetch("/api/save-glyph", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({char: ch, strokes: strokes, png: dataUrl, savedAt: Date.now()})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  } catch (e) {
+    toast("保存到服务器失败：" + e.message, true);
+    return false;
+  }
+  savedBlobs.set(ch, blob);
+  state.saved[ch] = Date.now();
+  persist();
+  updateProgress(); renderGrid();
+  toast(`已保存「${ch}」到服务器`);
+  if (opts.advance !== false && state.autoNext) nextUnsaved();
+  return true;
+}
+
+
+function undo() {
+  const ch = state.chars[state.current];
+  const arr = state.strokes[ch];
+  if (!arr || !arr.length) return;
+  arr.pop();
+  delete state.saved[ch];
+  savedBlobs.delete(ch);
+  renderPad(); renderGrid(); persist();
+  $("#statStrokes").textContent = arr.length;
+}
+
+function clearCurrent() {
+  const ch = state.chars[state.current];
+  if (!state.strokes[ch]?.length) return;
+  if (!confirm(`重写「${ch}」？当前笔迹会清空。`)) return;
+  delete state.strokes[ch];
+  delete state.saved[ch];
+  savedBlobs.delete(ch);
+  renderPad(); renderGrid(); persist();
+  $("#statStrokes").textContent = "0";
+}
+
+/* ============================== ZIP（store，无依赖） ============================== */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosDateTime(d = new Date()) {
+  const time = ((d.getHours() & 31) << 11) | ((d.getMinutes() & 63) << 5) | ((d.getSeconds() / 2) & 31);
+  const date = (((d.getFullYear() - 1980) & 127) << 9) | (((d.getMonth() + 1) & 15) << 5) | (d.getDate() & 31);
+  return { time, date };
+}
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const { time, date } = dosDateTime();
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const data = f.data;
+    const crc = crc32(data);
+    const lh = new Uint8Array(30 + name.length);
+    const dv = new DataView(lh.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 0x0800, true);   // UTF-8
+    dv.setUint16(8, 0, true);        // store
+    dv.setUint16(10, time, true);
+    dv.setUint16(12, date, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, data.length, true);
+    dv.setUint32(22, data.length, true);
+    dv.setUint16(26, name.length, true);
+    dv.setUint16(28, 0, true);
+    lh.set(name, 30);
+    locals.push(lh, data);
+
+    const ch = new Uint8Array(46 + name.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true);
+    cv.setUint16(14, date, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    ch.set(name, 46);
+    centrals.push(ch);
+    offset += lh.length + data.length;
+  }
+  const centralSize = centrals.reduce((a, b) => a + b.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+  return new Blob([...locals, ...centrals, end], { type: "application/zip" });
+}
+
+function zipName() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${state.fontName || "myhand"}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.zip`;
+}
+
+async function buildZipBlob() {
+  const enc = new TextEncoder();
+  const files = [];
+  const chars = state.chars.filter(c => state.strokes[c]?.length);
+  for (const ch of chars) {
+    let blob = savedBlobs.get(ch);
+    if (!blob) {
+      const c = renderToCanvas(null, ch, state.pressure);
+      blob = await canvasToBlob(c);
+      savedBlobs.set(ch, blob);
+    }
+    files.push({ name: `glyphs/${ch}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  const strokesJson = {
+    font: state.fontName || "myhand",
+    version: 1,
+    canvas: INNER,
+    createdAt: new Date().toISOString(),
+    characters: chars.map(ch => ({
+      char: ch,
+      savedAt: state.saved[ch] || null,
+      strokes: (state.strokes[ch] || []).map(s => s.map(p => ({
+        x: +p.x.toFixed(2), y: +p.y.toFixed(2), p: +(p.p || 0.5).toFixed(3)
+      })))
+    }))
+  };
+  files.push({ name: "strokes.json", data: enc.encode(JSON.stringify(strokesJson, null, 2)) });
+  files.push({
+    name: "meta.json",
+    data: enc.encode(JSON.stringify({
+      app: "hwpad", version: 1, font: state.fontName,
+      count: chars.length, chars, saved: state.saved,
+      width: state.width, pressure: state.pressure,
+      createdAt: new Date().toISOString()
+    }, null, 2))
+  });
+  files.push({
+    name: "README.txt",
+    data: enc.encode(
+`手写种子字导出说明
+
+1. 解压后 glyphs/ 里是 256x256、黑字白底的 PNG，文件名就是字符。
+2. 在 zi2zi-JiT 环境里生成数据集：
+   python scripts/generate_glyph_dataset.py \\
+     --source-font /mnt/qnap_models/bambu-font-ai/data/source/NotoSerifCJKsc-Regular.otf \\
+     --glyph-dir glyphs \\
+     --output-dir /mnt/qnap_models/bambu-font-ai/data/user \\
+     --train-count ${Math.max(1, chars.length - 8)} \\
+     --font-name ${state.fontName || "myhand"}
+3. 训练（30 epoch 左右，小数据别超过 35）：
+   TORCH_COMPILE_DISABLE=1 TORCHDYNAMO_DISABLE=1 python lora_single_gpu_finetune_jit.py ...
+4. strokes.json 保留原始笔迹坐标，后续可做单线字体/矢量化。
+
+注意：本文件仅用于个人手写字体实验。
+`)
+  });
+  return makeZip(files);
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+async function postUpload(blob) {
+  const r = await fetch("/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: blob
+  });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return await r.json();
+}
+
+/* ============================== UI 绑定 ============================== */
+function toast(msg, isErr = false) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.toggle("err", !!isErr);
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+$("#btnSave").addEventListener("click", () => saveCurrent());
+$("#btnUndo").addEventListener("click", undo);
+$("#btnClear").addEventListener("click", clearCurrent);
+$("#btnPrev").addEventListener("click", () => selectChar(state.current - 1));
+$("#btnNext").addEventListener("click", () => selectChar(state.current + 1));
+$("#btnExport").addEventListener("click", async () => {
+  if (!state.chars.some(c => state.strokes[c]?.length)) { toast("还没有任何笔迹", true); return; }
+  const blob = await buildZipBlob();
+  downloadBlob(blob, zipName());
+  toast(`已导出 ${blob.size} B`);
+});
+$("#btnRestore").addEventListener("click", () => restoreFromServer(false));
+
+$("#btnApply").addEventListener("click", () => applySeed($("#seedText").value));
+$("#btnAppend").addEventListener("click", () => appendSeed($("#seedText").value));
+$("#btnBatch2").addEventListener("click", () => appendSeed(BATCH2));
+$("#btnBatch3").addEventListener("click", () => appendSeed(BATCH3));
+$("#btnBatch4").addEventListener("click", () => appendSeed(BATCH4));
+$("#btnBatch5").addEventListener("click", () => appendSeed(BATCH5));
+$("#btnPunct").addEventListener("click", () => appendSeed(PUNCT));
+$("#btnBatch6").addEventListener("click", () => appendSeed(BATCH6));
+$("#btnCommon50").addEventListener("click", () => { $("#seedText").value = COMMON50; applySeed(COMMON50); });
+$("#btnCommon100").addEventListener("click", () => { $("#seedText").value = DEFAULT_CHARS; applySeed(DEFAULT_CHARS); });
+
+$("#optAutoNext").addEventListener("change", (e) => { state.autoNext = e.target.checked; persist(); });
+$("#optLatin").addEventListener("change", (e) => {
+  state.allowLatin = e.target.checked;
+  applySeed($("#seedText").value);
+});
+$("#optWidth").addEventListener("input", (e) => {
+  state.width = +e.target.value; $("#widthVal").textContent = state.width;
+  savedBlobs.clear(); renderPad(); persist();
+});
+$("#optPressure").addEventListener("change", (e) => {
+  state.pressure = e.target.checked; savedBlobs.clear(); renderPad(); persist();
+});
+$("#fontName").addEventListener("change", (e) => {
+  state.fontName = e.target.value.trim() || "myhand";
+  $("#fontBadge").textContent = state.fontName; persist();
+});
+$("#btnReset").addEventListener("click", () => {
+  if (!confirm("清空本机保存的所有笔迹和字表？此操作不可恢复。")) return;
+  localStorage.removeItem(STORE_KEY);
+  location.reload();
+});
+$("#btnHelp").addEventListener("click", () => {
+  alert(
+`用法：
+1. 右侧改字表（粘贴文本会自动去重），点“应用字表”。
+2. 在中间写；支持数位板压感，采样用 pointermove + coalesced events。
+3. “保存”生成 256×256 PNG（黑字白底）；绿色=已保存，黄色=有改动。
+4. “保存并上传”在服务器打开时直接传到训练机；否则用“导出 ZIP”。
+5. 快捷键：Ctrl+S 保存，Ctrl+Z 撤销，左右方向键切换字。
+
+建议笔宽 8–10（256 画布），字占格约 80%。`);
+});
+
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "textarea" || tag === "input") return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveCurrent(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); selectChar(state.current - 1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); selectChar(state.current + 1); }
+});
+
+
+/* ============================== 排版输出 ============================== */
+let layoutPages = [];
+let layoutHits = [];
+let charOverrides = {};
+let layoutTrad = false;
+let layoutPreviewPages = [];
+let layoutPageIndex = 0;
+let layoutMissingChars = [];
+let layoutPreviewUrl = null;
+let aiStrokes = {};
+let aiVariants = {};
+let aiImages = {};
+let aiImagesByKey = {};
+let aiVariantsByKey = {};
+let aiAll = false;
+
+function layoutOpts() {
+  let w = +$("#layoutW").value || 210;
+  let h = +$("#layoutH").value || 297;
+  const paper = $("#layoutPaper").value;
+  if (paper === "a4") { w = 210; h = 297; }
+  if (paper === "a5") { w = 148; h = 210; }
+  if ($("#layoutOrient").value === "landscape") { const t = w; w = h; h = t; }
+  return {
+    w, h,
+    margin: Math.max(0, +$("#layoutMargin").value || 0),
+    fontSize: Math.max(2, +$("#layoutFont").value || 20),
+    lineHeight: Math.max(1, +$("#layoutLine").value || 1),
+    spacing: +$("#layoutSpacing").value || 0,
+    pen: Math.max(0.05, +$("#layoutPen").value || 0.5),
+    align: $("#layoutAlign").value,
+    dir: $("#layoutDir").value,
+    style: $("#layoutStyle").value,
+    hidePunct: $("#layoutHidePunct").checked,
+    normalize: $("#layoutNormalize").checked
+  };
+}
+
+function brushOutlinePath(pts, half) {
+  if (!pts.length) return null;
+  if (pts.length === 1) return null;
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const len = Math.hypot(tx, ty) || 1;
+    tx /= len; ty /= len;
+    const nx = -ty, ny = tx;
+    left.push([p[0] + nx * half, p[1] + ny * half]);
+    right.push([p[0] - nx * half, p[1] - ny * half]);
+  }
+  const d = "M " + left.map(p => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" L ") +
+    " L " + right.slice().reverse().map(p => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(" L ") + " Z";
+  return d;
+}
+
+function layoutGlyph(ch, x, y, o, forced, key) {
+  const brush = o.style === "brush";
+  const img = (key && aiImagesByKey[key]) || aiImages[ch];
+  if (brush && !isPunctuation(ch) && img) {
+    return `<image x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${o.fontSize.toFixed(2)}" height="${o.fontSize.toFixed(2)}" href="${img}" preserveAspectRatio="xMidYMid meet"/>`;
+  }
+  const variantList = (key && aiVariantsByKey[key]) || aiVariants[ch];
+  const brushVariant = (variantList && variantList.length) ? variantList[0] : null;
+  const strokes = isPunctuation(ch)
+    ? (state.strokes[ch] || aiStrokes[ch] || null)
+    : (brush ? (brushVariant || aiStrokes[ch] || null) :
+      (forced || ((aiAll && aiStrokes[ch]) ? aiStrokes[ch] : (state.strokes[ch] || aiStrokes[ch]))));
+  if (!strokes || !strokes.length) return null;
+  const all = [];
+  for (const s of strokes) for (const p of s) all.push(p);
+  if (!all.length) return null;
+
+  let s = o.fontSize / INNER;
+  let ox = x, oy = y;
+  if (o.normalize) {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const p of all) {
+      if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
+      if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y;
+    }
+    const bw = Math.max(1, maxx - minx), bh = Math.max(1, maxy - miny);
+    s = Math.min(o.fontSize * 0.92 / bw, o.fontSize * 0.92 / bh);
+    ox = x + (o.fontSize - bw * s) / 2 - minx * s;
+    oy = y + (o.fontSize - bh * s) / 2 - miny * s;
+  }
+  const out = [];
+  for (const st of strokes) {
+    if (!st.length) continue;
+    const pts = st.map(p => [ox + p.x * s, oy + p.y * s]);
+    let d;
+    if (pts.length === 1) {
+      const [px, py] = pts[0];
+      d = `M ${px.toFixed(2)},${py.toFixed(2)} L ${(px + 0.01).toFixed(2)},${py.toFixed(2)}`;
+    } else {
+      d = "M " + pts.map(([px, py]) => `${px.toFixed(2)},${py.toFixed(2)}`).join(" L ");
+    }
+    const strokeW = o.style === "brush" ? Math.max(o.pen * 1.8, o.pen + 0.3) : o.pen;
+    out.push(`<path d="${d}" fill="none" stroke="#000000" stroke-width="${strokeW.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`);
+  }
+  if (!out.length) return null;
+  return out.join("\n");
+}
+
+function layoutBuild() {
+  const o = layoutOpts();
+  const text = $("#layoutText").value.replace(/\r/g, "");
+  if (!text.trim()) { toast("先输入要排版的文字", true); return; }
+  const contentW = Math.max(1, o.w - 2 * o.margin);
+  const contentH = Math.max(1, o.h - 2 * o.margin);
+  const charAdvance = Math.max(0.5, o.fontSize + o.spacing);
+  const lineH = o.fontSize * o.lineHeight;
+  const advOf = (ch) => (o.hidePunct && isPunctuation(ch)) ? Math.max(0.5, charAdvance * 0.5) : charAdvance;
+  const hidden = (ch) => o.hidePunct && isPunctuation(ch);
+
+  layoutMissingChars = [];
+  const missing = new Set();
+  const aiUse = {};
+  const occCounts = {};
+  const pages = [], previews = [], allHits = [];
+  const pickForced = (ch, key) => {
+    if (!aiAll && !charOverrides[ch] && !charOverrides[key]) return null;
+    const arr = (key && aiVariantsByKey[key]) || aiVariants[ch];
+    if (!arr || !arr.length) return null;
+    const k = aiUse[ch] || 0;
+    aiUse[ch] = k + 1;
+    return arr[k % arr.length];
+  };
+  const hitKey = (ch) => {
+    const n = occCounts[ch] || 0;
+    occCounts[ch] = n + 1;
+    return `${ch}#${n}`;
+  };
+  const pageSvg = (parts) => `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${o.w}mm" height="${o.h}mm" viewBox="0 0 ${o.w} ${o.h}">
+<title>${(state.fontName || "myhand")} · page ${pages.length + 1}</title>
+${parts.join("\n")}
+</svg>`;
+  const addPage = (parts, previewParts, hits) => {
+    pages.push(pageSvg(parts));
+    previews.push(pageSvg(previewParts));
+    allHits.push(hits);
+  };
+
+  if (o.dir === "vertical") {
+    const columns = [];
+    for (const para of text.split("\n")) {
+      if (para === "") { columns.push([]); continue; }
+      let col = [], h = 0;
+      for (const ch of Array.from(para)) {
+        const a = advOf(ch);
+        if (col.length && h + a > contentH + 0.001) { columns.push(col); col = []; h = 0; }
+        col.push(ch); h += a;
+      }
+      if (col.length) columns.push(col);
+    }
+    const colStep = lineH;
+    const colsPerPage = Math.max(1, Math.floor(contentW / colStep));
+    for (let start = 0; start < columns.length; start += colsPerPage) {
+      const chunk = columns.slice(start, start + colsPerPage);
+      const parts = [], previewParts = [], hits = [];
+      chunk.forEach((col, ci) => {
+        if (!col.length) return;
+        const x = o.margin + contentW - o.fontSize - ci * colStep;
+        let y = o.margin;
+        for (const ch of col) {
+          const a = advOf(ch);
+          if (hidden(ch)) { y += a; continue; }
+          const key = hitKey(ch);
+          const g = layoutGlyph(ch, x, y, o, pickForced(ch, key), key);
+          if (g) { parts.push(g); previewParts.push(g); hits.push({ch, key, x, y, w: o.fontSize, h: o.fontSize}); }
+          else {
+            missing.add(ch);
+            previewParts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${o.fontSize.toFixed(2)}" height="${o.fontSize.toFixed(2)}" fill="none" stroke="#f59e0b" stroke-width="0.25" stroke-dasharray="1,1"/>`);
+          }
+          y += a;
+        }
+      });
+      addPage(parts, previewParts, hits);
+    }
+  } else {
+    const linesPerPage = Math.max(1, Math.floor(contentH / lineH));
+    const lines = [];
+    for (const para of text.split("\n")) {
+      if (para === "") { lines.push([]); continue; }
+      let line = [], w = 0;
+      for (const ch of Array.from(para)) {
+        const a = advOf(ch);
+        if (line.length && w + a > contentW + 0.001) { lines.push(line); line = []; w = 0; }
+        line.push(ch); w += a;
+      }
+      if (line.length) lines.push(line);
+    }
+    for (let start = 0; start < lines.length; start += linesPerPage) {
+      const chunk = lines.slice(start, start + linesPerPage);
+      const parts = [], previewParts = [], hits = [];
+      chunk.forEach((line, li) => {
+        if (!line.length) return;
+        const lineW = line.reduce((sum, ch) => sum + advOf(ch), 0);
+        let x = o.margin;
+        if (o.align === "center") x = o.margin + (contentW - lineW) / 2;
+        if (o.align === "right") x = o.margin + contentW - lineW;
+        const y = o.margin + li * lineH;
+        for (const ch of line) {
+          const a = advOf(ch);
+          if (hidden(ch)) { x += a; continue; }
+          const key = hitKey(ch);
+          const g = layoutGlyph(ch, x, y, o, pickForced(ch, key), key);
+          if (g) { parts.push(g); previewParts.push(g); hits.push({ch, key, x, y, w: o.fontSize, h: o.fontSize}); }
+          else {
+            missing.add(ch);
+            previewParts.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${o.fontSize.toFixed(2)}" height="${o.fontSize.toFixed(2)}" fill="none" stroke="#f59e0b" stroke-width="0.25" stroke-dasharray="1,1"/>`);
+          }
+          x += a;
+        }
+      });
+      addPage(parts, previewParts, hits);
+    }
+  }
+
+  if (!pages.length) { pages.push(pageSvg([])); previews.push(pageSvg([])); allHits.push([]); }
+  layoutPages = pages;
+  layoutPreviewPages = previews;
+  layoutHits = allHits;
+  layoutMissingChars = Array.from(missing);
+  layoutPageIndex = Math.min(layoutPageIndex, Math.max(0, pages.length - 1));
+  $("#layoutInfo").textContent = `${pages.length} 页 · ${o.w}×${o.h}mm`;
+  $("#layoutMeta").textContent = `${pages.length} 页 · ${o.dir === "vertical" ? "竖排" : "横排"} · 字号 ${o.fontSize}mm · 行距 ${o.lineHeight}× · 缺字 ${layoutMissingChars.length}`;
+  $("#layoutMissing").textContent = layoutMissingChars.length ? `缺字：${layoutMissingChars.join(" ")}（预览虚线框，导出不含）` : "字库覆盖：全部有笔迹";
+  layoutShowPage();
+}
+
+function layoutShowPage() {
+  if (!layoutPages.length) { $("#layoutPreviewImg").removeAttribute("src"); $("#layoutPageInfo").textContent = "—"; return; }
+  if (layoutPreviewUrl) URL.revokeObjectURL(layoutPreviewUrl);
+  const blob = new Blob([(layoutPreviewPages[layoutPageIndex] || layoutPages[layoutPageIndex])], {type: "image/svg+xml"});
+  layoutPreviewUrl = URL.createObjectURL(blob);
+  $("#layoutPreviewImg").src = layoutPreviewUrl;
+  $("#layoutPageInfo").textContent = `第 ${layoutPageIndex + 1} / ${layoutPages.length} 页`;
+  $("#btnLayoutPrev").disabled = layoutPageIndex <= 0;
+  $("#btnLayoutNext").disabled = layoutPageIndex >= layoutPages.length - 1;
+  layoutRenderHits();
+}
+
+function layoutRenderHits() {
+  const layer = $("#layoutHits");
+  if (!layer) return;
+  const hits = layoutHits[layoutPageIndex] || [];
+  const o = layoutOpts();
+  layer.innerHTML = hits.map(h => {
+    const left = (h.x / o.w) * 100;
+    const top = (h.y / o.h) * 100;
+    const width = (h.w / o.w) * 100;
+    const height = (h.h / o.h) * 100;
+    return `<button type="button" class="layout-hit" data-ch="${encodeURIComponent(h.ch)}" data-key="${encodeURIComponent(h.key || h.ch)}" style="left:${left.toFixed(3)}%;top:${top.toFixed(3)}%;width:${width.toFixed(3)}%;height:${height.toFixed(3)}%"><span>↻</span></button>`;
+  }).join("");
+}
+
+let layoutCharStatusTimer = null;
+function setCharStatus(text, color) {
+  const el = $("#layoutCharStatus");
+  el.textContent = text;
+  el.style.color = color || "#2563eb";
+  if (layoutCharStatusTimer) clearTimeout(layoutCharStatusTimer);
+  layoutCharStatusTimer = null;
+}
+
+async function layoutRefreshChar(ch, key, btn) {
+  if (btn.dataset.busy) return;
+  btn.dataset.busy = "1";
+  btn.classList.add("busy");
+  btn.innerHTML = "…";
+  setCharStatus(`正在生成「${ch}」…`, "#2563eb");
+  try {
+    const r = await fetch("/api/ai-variants", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({chars: [ch], model: $("#layoutModel").value, font: ($("#layoutStyle").value === "brush" ? 1 : 0)})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    if (j.images && j.images[ch]) aiImagesByKey[key] = j.images[ch];
+    const list = (j.variants && j.variants[ch]) || [];
+    if (list.length) aiVariantsByKey[key] = [normalizeAiStrokes(list[0])];
+    charOverrides[key] = true;
+    layoutBuild();
+    setCharStatus(`「${ch}」已更新`, "#15803d");
+    layoutCharStatusTimer = setTimeout(() => setCharStatus(""), 3500);
+  } catch (e) {
+    setCharStatus(`「${ch}」生成失败：${e.message}`, "#b91c1c");
+    toast("单字刷新失败：" + e.message, true);
+    btn.classList.remove("busy");
+    btn.dataset.busy = "";
+    btn.innerHTML = "<span>↻</span>";
+  }
+}
+
+$("#layoutHits").addEventListener("click", (e) => {
+  const btn = e.target.closest(".layout-hit");
+  if (!btn) return;
+  layoutRefreshChar(decodeURIComponent(btn.dataset.ch), decodeURIComponent(btn.dataset.key), btn);
+});
+
+function layoutDownloadSvg() {
+  if (!layoutPages.length) { toast("先生成预览", true); return; }
+  const name = `${state.fontName || "myhand"}-page-${String(layoutPageIndex + 1).padStart(2, "0")}.svg`;
+  downloadBlob(new Blob([layoutPages[layoutPageIndex]], {type: "image/svg+xml"}), name);
+}
+
+function layoutDownloadZip() {
+  if (!layoutPages.length) { toast("先生成预览", true); return; }
+  const enc = new TextEncoder();
+  const files = layoutPages.map((svg, i) => ({
+    name: `page-${String(i + 1).padStart(2, "0")}.svg`,
+    data: enc.encode(svg)
+  }));
+  files.push({name: "meta.json", data: enc.encode(JSON.stringify({
+    font: state.fontName, pages: layoutPages.length,
+    createdAt: new Date().toISOString()
+  }, null, 2))});
+  downloadBlob(makeZip(files), `${state.fontName || "myhand"}-layout.zip`);
+}
+
+const PUNCT_SET = new Set(Array.from("，。！？；：、（）《》“”‘’—…·「」『』【】〔〕,.!?;:()[]{}<>\"'"));
+
+function isPunctuation(ch) {
+  return PUNCT_SET.has(ch);
+}
+
+function normalizeAiStrokes(strokes) {
+  return strokes.map(st => st.map(p => Array.isArray(p) ? {x: +p[0], y: +p[1]} : p));
+}
+
+async function aiGenerateAll() {
+  const text = $("#layoutText").value.replace(/\r/g, "");
+  const occ = Array.from(text).filter(c => c.trim());
+  const aiOcc = occ.filter(c => !isPunctuation(c));
+  if (!occ.length) { toast("先输入文字", true); return; }
+  if (!aiOcc.length) { toast("只有标点，本地直接输出", true); return; }
+  const btn = $("#btnAiAll");
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = "全部生成中…";
+  let got = 0, failed = [];
+  try {
+    aiVariants = {};
+    charOverrides = {};
+    for (let i = 0; i < aiOcc.length; i += 20) {
+      const chunk = aiOcc.slice(i, i + 20);
+      $("#layoutAiInfo").textContent = `全部 AI [${$("#layoutModel").selectedOptions[0].textContent}]：${i + chunk.length}/${aiOcc.length} 字（标点本地输出）`;
+      const r = await fetch("/api/ai-variants", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({chars: chunk, model: $("#layoutModel").value, font: ($("#layoutStyle").value === "brush" ? 1 : 0)})
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      for (const [ch, list] of Object.entries(j.variants || {})) {
+        if (!Array.isArray(list)) continue;
+        for (const strokes of list) {
+          if (Array.isArray(strokes) && strokes.length) {
+            (aiVariants[ch] = aiVariants[ch] || []).push(normalizeAiStrokes(strokes));
+            got++;
+          } else failed.push(ch);
+        }
+      }
+      for (const [ch, url] of Object.entries(j.images || {})) {
+        if (typeof url === "string" && url.startsWith("data:image/")) aiImages[ch] = url;
+      }
+    }
+    aiAll = true;
+    layoutBuild();
+    $("#layoutAiInfo").textContent = `全部 AI：${got}/${aiOcc.length} 个字形（标点本地输出）${failed.length ? `；失败 ${failed.join(" ")}` : ""}`;
+    toast(failed.length ? `全部 AI 完成 ${got} 个字形，${failed.join("")} 失败` : `全部 ${got} 个字形已由 AI 重画`, failed.length > 0);
+  } catch (e) {
+    $("#layoutAiInfo").textContent = "全部 AI 失败：" + e.message;
+    toast("全部 AI 失败，需要由 8088 服务器打开页面", true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+
+async function aiGenerateMissing() {
+  aiAll = false;
+  const text = $("#layoutText").value.replace(/\r/g, "");
+  const chars = Array.from(new Set(Array.from(text).filter(c => c.trim())));
+  const missing = chars.filter(c => !isPunctuation(c) && !state.strokes[c] && !aiStrokes[c] && !aiImages[c] && !aiVariants[c]);
+  if (!missing.length) { toast("没有缺字，先直接生成预览", true); return; }
+  const btn = $("#btnAiGlyph");
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = "AI 生成中…";
+  $("#layoutAiInfo").textContent = `AI [${$("#layoutModel").selectedOptions[0].textContent}] 正在生成：${missing.join(" ")}`;
+  try {
+    const styleFont = ($("#layoutStyle").value === "brush" ? 1 : 0);
+    const r = await fetch("/api/ai-variants", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({chars: missing, model: $("#layoutModel").value, font: styleFont})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    let got = 0, empty = [];
+    for (const ch of missing) {
+      const list = (j.variants && j.variants[ch]) || [];
+      const strokes = list.length ? list[0] : null;
+      const img = j.images && j.images[ch];
+      if (Array.isArray(strokes) && strokes.length) {
+        aiStrokes[ch] = strokes.map(st => st.map(p => Array.isArray(p) ? {x: +p[0], y: +p[1]} : p));
+        aiVariants[ch] = [normalizeAiStrokes(strokes)];
+        charOverrides[ch] = true;
+        got++;
+      } else if (img) {
+        aiImages[ch] = img;
+        charOverrides[ch] = true;
+        got++;
+      } else {
+        empty.push(ch);
+      }
+      if (img) aiImages[ch] = img;
+    }
+    layoutBuild();
+    $("#layoutAiInfo").textContent = `AI 生成 ${got} 字${empty.length ? `；失败：${empty.join(" ")}` : ""}`;
+    toast(empty.length ? `AI 完成 ${got} 字，${empty.join("")} 失败` : `AI 生成 ${got} 字，已并入排版`, empty.length > 0);
+  } catch (e) {
+    $("#layoutAiInfo").textContent = "AI 生成失败：" + e.message;
+    toast("AI 生成失败，需要由 8088 服务器打开页面", true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+function layoutOpen() {
+  $("#layoutOverlay").classList.add("show");
+  layoutBuild();
+}
+function layoutClose() {
+  $("#layoutOverlay").classList.remove("show");
+  if (layoutPreviewUrl) { URL.revokeObjectURL(layoutPreviewUrl); layoutPreviewUrl = null; }
+}
+
+$("#btnAiGlyph").addEventListener("click", aiGenerateMissing);
+$("#btnAiAll").addEventListener("click", aiGenerateAll);
+$("#btnAiClear").addEventListener("click", () => { aiStrokes = {}; aiVariants = {}; aiImages = {}; aiAll = false; $("#layoutAiInfo").textContent = "已恢复手写"; layoutBuild(); });
+$("#btnLayout").addEventListener("click", layoutOpen);
+$("#btnLayoutClose").addEventListener("click", layoutClose);
+$("#btnLayoutRender").addEventListener("click", layoutBuild);
+$("#btnLayoutSvg").addEventListener("click", layoutDownloadSvg);
+function layoutDownloadPng() {
+  // re-layout with current font/line/spacing settings before exporting
+  layoutBuild();
+  if (!layoutPages.length) { toast("先生成预览", true); return; }
+  const o = layoutOpts();
+  const pxPerMm = 300 / 25.4;
+  const w = Math.max(1, Math.round(o.w * pxPerMm));
+  const h = Math.max(1, Math.round(o.h * pxPerMm));
+  const blob = new Blob([layoutPages[layoutPageIndex]], {type: "image/svg+xml"});
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((out) => {
+        if (!out) { toast("图片导出失败", true); return; }
+        downloadBlob(out, `${state.fontName || "myhand"}-page-${layoutPageIndex + 1}.png`);
+      }, "image/png");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("图片渲染失败", true); };
+  img.src = url;
+}
+$("#btnLayoutPng").addEventListener("click", layoutDownloadPng);
+$("#btnLayoutZip").addEventListener("click", layoutDownloadZip);
+$("#btnLayoutPrev").addEventListener("click", () => { if (layoutPageIndex > 0) { layoutPageIndex--; layoutShowPage(); } });
+$("#btnLayoutNext").addEventListener("click", () => { if (layoutPageIndex < layoutPages.length - 1) { layoutPageIndex++; layoutShowPage(); } });
+$("#layoutPaper").addEventListener("change", () => {
+  const v = $("#layoutPaper").value;
+  if (v === "a4") { $("#layoutW").value = 210; $("#layoutH").value = 297; }
+  if (v === "a5") { $("#layoutW").value = 148; $("#layoutH").value = 210; }
+  layoutBuild();
+});
+$("#layoutOrient").addEventListener("change", () => {
+  const w = $("#layoutW").value; $("#layoutW").value = $("#layoutH").value; $("#layoutH").value = w;
+  layoutBuild();
+});
+$("#layoutModel").addEventListener("change", () => {
+  aiStrokes = {}; aiVariants = {}; aiImages = {}; aiImagesByKey = {}; aiVariantsByKey = {}; charOverrides = {}; aiAll = false;
+  $("#layoutAiInfo").textContent = "已切换模型：" + $("#layoutModel").selectedOptions[0].textContent;
+  layoutBuild();
+});
+$("#btnZhConvert").addEventListener("click", async () => {
+  const text = $("#layoutText").value;
+  if (!text.trim()) { toast("先输入文字", true); return; }
+  const to = layoutTrad ? "s" : "t";
+  const btn = $("#btnZhConvert");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/zh-convert", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text, to})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    $("#layoutText").value = j.text;
+    layoutTrad = !layoutTrad;
+    btn.textContent = layoutTrad ? "繁→简" : "简→繁";
+    layoutBuild();
+  } catch (e) {
+    toast("简繁转换失败：" + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+$("#layoutText").addEventListener("input", () => {
+  charOverrides = {};
+  aiImagesByKey = {};
+  aiVariantsByKey = {};
+  layoutTrad = false;
+  $("#btnZhConvert").textContent = "简→繁";
+});
+$("#layoutStyle").addEventListener("change", () => {
+  aiStrokes = {}; aiVariants = {}; aiImages = {}; aiImagesByKey = {}; aiVariantsByKey = {}; charOverrides = {}; aiAll = false;
+  $("#layoutAiInfo").textContent = $("#layoutStyle").value === "brush"
+    ? "已切换毛笔：先点「全部 AI 生成」" : "已切换手写体";
+  layoutBuild();
+});
+["layoutText","layoutMargin","layoutFont","layoutLine","layoutSpacing","layoutPen","layoutAlign","layoutDir","layoutNormalize","layoutHidePunct"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener(el.tagName === "TEXTAREA" ? "input" : "change", layoutBuild);
+});
+// 手改宽/高时自动切到「自定义」，否则 A4/A5 会把尺寸重置回去，纸型看起来不跟随。
+["layoutW","layoutH"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("change", () => {
+    $("#layoutPaper").value = "custom";
+    layoutBuild();
+  });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#layoutOverlay").classList.contains("show")) layoutClose();
+});
+
+/* ============================== 启动 ============================== */
+(async function boot() {
+  let serverOk = false;
+  try {
+    const r = await fetch("/api/state");
+    const j = await r.json();
+    if (r.ok && j.ok && Array.isArray(j.chars) && j.chars.length) {
+      state.chars = j.chars;
+      state.strokes = j.strokes || {};
+      state.saved = j.saved || {};
+      state.seedText = state.chars.join("");
+      state.current = 0;
+      serverOk = true;
+    }
+  } catch (e) { /* fallback local */ }
+  if (!serverOk) {
+    const ok = restore();
+    if (!ok) {
+      state.chars = parseChars(DEFAULT_CHARS, false);
+      state.seedText = DEFAULT_CHARS;
+    }
+  }
+  $("#seedText").value = state.seedText;
+  $("#fontName").value = state.fontName;
+  $("#fontBadge").textContent = state.fontName;
+  $("#optAutoNext").checked = state.autoNext;
+  $("#optLatin").checked = state.allowLatin;
+  $("#optWidth").value = state.width;
+  $("#widthVal").textContent = state.width;
+  $("#optPressure").checked = state.pressure;
+  if (!state.chars.length) state.chars = parseChars(DEFAULT_CHARS, false);
+  state.current = Math.min(state.current || 0, state.chars.length - 1);
+  renderGrid();
+  selectChar(state.current);
+  $("#statStrokes").textContent = (state.strokes[state.chars[state.current]] || []).length;
+  persist();
+})();
+</script>
+</body>
+</html>

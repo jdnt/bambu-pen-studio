@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>字体生成 · myhand</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--ok:#15803d;--bad:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+header{height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:15px;margin:0}header .sp{flex:1}header a{color:var(--muted);text-decoration:none}
+main{max-width:1280px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 16px;font:14px inherit;cursor:pointer}
+.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.bar label{font-size:12px;color:var(--muted)}.bar select,.bar input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:13px inherit;background:#fff}
+.bar button{border:0;border-radius:9px;padding:9px 14px;background:var(--accent);color:#fff;font:13px inherit;cursor:pointer}
+.bar button:disabled{opacity:.5;cursor:wait}.bar .ghost{background:#eef2ff;color:#1e40af}
+#status{min-height:20px;margin:6px 0 10px;color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:10px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;position:relative}
+.card.approved{border-color:#bbf7d0;background:#f0fdf4}.card.off{opacity:.55}
+.card img{width:78px;height:78px;object-fit:contain;background:#fff;display:block;margin:0 auto}
+.card .ch{font-size:12px;margin:2px 0;font-weight:600}.card .ch small{font-weight:400;color:var(--muted)}
+.card .row{display:flex;gap:4px;justify-content:center;align-items:center}
+.card button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:3px 7px;cursor:pointer;font-size:12px}
+.card button:hover{border-color:var(--accent);color:var(--accent)}
+.card .ok{font-size:11px;color:var(--muted)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:16px 0}.pager button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer}
+.note{font-size:12px;color:var(--muted);line-height:1.7}.note b{color:var(--ink)}
+#result{font-size:13px;margin-top:10px}
+#result a{color:var(--accent);font-weight:600}
+@media(max-width:640px){main{padding:10px}.bar select{max-width:130px}}
+</style>
+</head>
+<body>
+<header><h1>字体生成 · 逐字审核</h1><span class="sp"></span><a href="/">← 返回采集板</a></header>
+<main>
+  <div class="tabs">
+    <button id="tabHand" class="on">手写体</button>
+    <button id="tabBrush">毛笔</button>
+  </div>
+  <div class="bar">
+    <label>字库 <select id="source">
+      <option value="mine">我的 2000 字</option>
+      <option value="gb2312">GB2312 简体 6763</option>
+      <option value="big5">Big5 繁体 13053</option>
+      <option value="both">简繁合一（GB2312 + 繁体码位）</option>
+    </select></label>
+    <label id="formatWrap">输出 <select id="format"><option value="ttf">标准 TTF（Word 可用）</option><option value="single">单线 SVG 包</option></select></label>
+    <label>搜索 <input id="search" placeholder="字或页码"></label>
+    <button id="btnAll">一键全部生成</button>
+    <button id="btnAllStop" class="ghost" hidden>停止</button>
+    <button id="btnBuild">生成字体</button>
+    <button id="btnReload" class="ghost">刷新</button>
+  </div>
+  <div class="note">勾选“保留”的字才会进入字体；不满意的点“重生成”用对应模型再生成一个版本。毛笔只输出标准 TTF。</div>
+  <div id="status">加载中…</div>
+  <div id="grid" class="grid"></div>
+  <div class="pager"><button id="prev">← 上一页</button><span id="pageInfo">—</span><button id="next">下一页 →</button></div>
+  <div id="result"></div>
+</main>
+<script>
+const PAGE = 120;
+let style = "hand", all = [], page = 0, filtered = [], busy = false, loadSeq = 0;
+let batchRunning = false, batchStop = false;
+const $ = s => document.querySelector(s);
+
+function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
+
+async function load(styleName) {
+  const seq = ++loadSeq;
+  style = styleName;
+  $("#tabHand").classList.toggle("on", style === "hand");
+  $("#tabBrush").classList.toggle("on", style === "brush");
+  $("#formatWrap").style.display = style === "hand" ? "" : "none";
+  setStatus("加载中…");
+  const source = $("#source").value;
+  const r = await fetch(`/api/fontgen/state?style=${style}&source=${source}`);
+  const j = await r.json();
+  if (seq !== loadSeq) return;
+  if (!r.ok || !j.ok) { setStatus("加载失败：" + (j.error || r.status), "var(--bad)"); return; }
+  all = j.chars || [];
+  page = 0; applyFilter();
+  const have = all.filter(x => x.preview && !x.missing).length;
+  setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
+}
+
+function applyFilter() {
+  const q = ($("#search").value || "").trim();
+  filtered = q ? all.filter(x => x.char.includes(q)) : all.slice();
+  page = 0; render();
+}
+
+function render() {
+  const start = page * PAGE, rows = filtered.slice(start, start + PAGE);
+  $("#grid").innerHTML = rows.map(x => {
+    const ch = x.char;
+    return `<div class="card ${x.approved ? "approved" : "off"}" data-ch="${ch}">
+      <img src="${x.preview}&t=${x.updated || (x.approved ? 1 : Date.now())}" loading="lazy" alt="${ch}">
+      <div class="ch">${ch} <small>U+${ch.codePointAt(0).toString(16).toUpperCase()}</small></div>
+      <div class="row"><label class="ok"><input type="checkbox" class="approve" ${x.approved ? "checked" : ""}> 保留</label></div>
+      <div class="row"><button class="regen">重生成</button></div>
+    </div>`;
+  }).join("");
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  $("#pageInfo").textContent = `第 ${page + 1} / ${pages} 页 · ${filtered.length} 字`;
+  $("#prev").disabled = page <= 0; $("#next").disabled = page >= pages - 1;
+}
+
+$("#grid").addEventListener("change", async e => {
+  const cb = e.target.closest(".approve"); if (!cb) return;
+  const card = cb.closest(".card"); const ch = card.dataset.ch;
+  card.classList.toggle("approved", cb.checked); card.classList.toggle("off", !cb.checked);
+  all.find(x => x.char === ch).approved = cb.checked;
+  await fetch("/api/fontgen/approve", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,char:ch,approved:cb.checked})});
+});
+
+async function setCardImage(card, url) {
+  const img = card.querySelector("img");
+  if (!img) return;
+  try {
+    const r = await fetch(url + "&cb=" + Date.now(), {cache: "no-store"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const blob = await r.blob();
+    const obj = URL.createObjectURL(blob);
+    img.onload = () => URL.revokeObjectURL(obj);
+    img.src = obj;
+  } catch (_) {
+    img.src = url + "&cb=" + Date.now();
+  }
+}
+
+$("#grid").addEventListener("click", async e => {
+  const btn = e.target.closest(".regen"); if (!btn) return;
+  const card = btn.closest(".card"); const ch = card.dataset.ch;
+  if (busy) return; busy = true; btn.disabled = true; btn.textContent = "…";
+  const reqStyle = style;
+  setStatus(`正在用${reqStyle === "hand" ? "手写" : "毛笔"}模型生成「${ch}」…`);
+  try {
+    const r = await fetch("/api/fontgen/regen", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style:reqStyle, font: reqStyle === "brush" ? 1 : 0, char:ch})});
+    const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    const x = all.find(z => z.char === ch);
+    if (x) { x.approved = true; x.missing = false; x.updated = Date.now(); x.preview = j.preview; }
+    await setCardImage(card, j.preview);
+    card.classList.add("approved"); card.classList.remove("off");
+    card.querySelector(".approve").checked = true;
+    setStatus(`「${ch}」已更新`, "var(--ok)");
+  } catch (err) { setStatus("生成失败：" + err.message, "var(--bad)"); }
+  finally { busy = false; btn.disabled = false; btn.textContent = "重生成"; }
+});
+
+let batchTimer = null;
+function setBatchUI(on) {
+  batchRunning = on;
+  $("#btnAll").disabled = on;
+  $("#btnBuild").disabled = on;
+  $("#btnAllStop").hidden = !on;
+}
+
+function applyJobItems(items) {
+  for (const it of items || []) {
+    const x = all.find(z => z.char === it.char);
+    if (x) { x.approved = true; x.missing = false; x.updated = it.updated; }
+    const card = document.querySelector(`.card[data-ch="${it.char}"]`);
+    if (card) {
+      if (!card.dataset.updating) {
+        card.dataset.updating = "1";
+        setCardImage(card, it.preview).finally(() => { delete card.dataset.updating; });
+      }
+      card.classList.add("approved"); card.classList.remove("off");
+      const cb = card.querySelector(".approve"); if (cb) cb.checked = true;
+    }
+  }
+}
+
+async function pollJob(jobId) {
+  if (batchTimer) clearTimeout(batchTimer);
+  try {
+    const r = await fetch(`/api/fontgen/batch/status?job=${encodeURIComponent(jobId)}`);
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    // never apply a hand job's items onto the brush grid (or vice versa)
+    if (j.style === style) applyJobItems(j.items || []);
+    const pct = j.total ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0;
+    if (j.status === "running" || j.status === "stopping") {
+      setStatus(`服务端任务 ${j.id} · ${j.done}/${j.total}（${pct}%）· 当前「${j.current || "…"}」· 失败 ${j.failed}`);
+      setBatchUI(true);
+      batchTimer = setTimeout(() => pollJob(jobId), 1500);
+    } else {
+      setBatchUI(false);
+      localStorage.removeItem("fontgenJob");
+      const label = j.status === "done" ? "已完成" : "已停止";
+      setStatus(`任务${label}：${j.done}/${j.total} 字，失败 ${j.failed}`, j.status === "done" ? "var(--ok)" : "var(--bad)");
+      await load(style);
+    }
+  } catch (e) {
+    setStatus("任务状态查询失败：" + e.message, "var(--bad)");
+    batchTimer = setTimeout(() => pollJob(jobId), 3000);
+  }
+}
+
+async function regenerateAll() {
+  if (batchRunning) return;
+  const total = all.length;
+  const label = style === "hand" ? "手写" : "毛笔";
+  if (!total) return;
+  const ok = window.confirm(`将在服务端用${label}模型重新生成全部 ${total} 个字。\n\n关闭浏览器任务仍会继续；确定开始吗？`);
+  if (!ok) return;
+  setBatchUI(true);
+  setStatus("正在创建服务端任务…");
+  try {
+    const r = await fetch("/api/fontgen/batch/start", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source:$("#source").value})});
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    localStorage.setItem("fontgenJob", j.job);
+    pollJob(j.job);
+  } catch (e) {
+    setBatchUI(false);
+    setStatus("创建任务失败：" + e.message, "var(--bad)");
+  }
+}
+
+async function stopBatch() {
+  const job = localStorage.getItem("fontgenJob");
+  if (!job) return;
+  setStatus("正在停止服务端任务…");
+  try { await fetch("/api/fontgen/batch/stop", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job})}); } catch (_) {}
+}
+
+$("#btnAll").addEventListener("click", regenerateAll);
+$("#btnAllStop").addEventListener("click", stopBatch);
+
+$("#btnBuild").addEventListener("click", async () => {
+  const fmt = style === "hand" ? $("#format").value : "ttf";
+  const charset = $("#charset").value;
+  const btn = $("#btnBuild"); btn.disabled = true; btn.textContent = "构建中…";
+  setStatus("正在构建字体，字多时需要一点时间…");
+  $("#result").innerHTML = "";
+  try {
+    const source = $("#source").value;
+    const r = await fetch("/api/fontgen/build", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source,format:fmt})});
+    const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    $("#result").innerHTML = `<a href="${j.download}">下载 ${j.file}</a> · ${j.glyphs} 个字形`;
+    setStatus(`构建完成：${j.glyphs} 个字形`, "var(--ok)");
+  } catch (err) { setStatus("构建失败：" + err.message, "var(--bad)"); }
+  finally { btn.disabled = false; btn.textContent = "生成字体"; }
+});
+
+$("#tabHand").onclick = () => load("hand").then(() => {
+  const job = localStorage.getItem("fontgenJob");
+  if (job) pollJob(job);
+});
+$("#tabBrush").onclick = () => load("brush");
+$("#btnReload").onclick = () => load(style);
+$("#search").addEventListener("input", applyFilter);
+$("#source").addEventListener("change", () => load(style));
+$("#prev").onclick = () => { if (page > 0) { page--; render(); } };
+$("#next").onclick = () => { const pages = Math.max(1, Math.ceil(filtered.length / PAGE)); if (page + 1 < pages) { page++; render(); } };
+load("hand").then(() => {
+  const job = localStorage.getItem("fontgenJob");
+  if (job) pollJob(job);
+});
+</script>
+</body>
+</html>
