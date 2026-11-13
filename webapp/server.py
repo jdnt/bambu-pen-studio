@@ -571,8 +571,9 @@ class Handler(SimpleHTTPRequestHandler):
             ch = v.get("char")
             if not v.get("selected") or ch in (None, "", "?"):
                 continue
+            crop_ok = (FONT1_DIR / v["crop"]).exists() if v.get("crop") else False
             rows.append({"char": ch, "approved": bool(over.get(ch, {}).get("approved", True)),
-                         "missing": not (FONTGEN_DIR / "brush" / f"{ch}.png").exists(),
+                         "missing": not ((FONTGEN_DIR / "brush" / f"{ch}.png").exists() or crop_ok),
                          "preview": f"/api/fontgen/preview?style=brush&ch={quote(ch)}"})
         if source in ("gb2312", "big5", "both"):
             have = {r["char"] for r in rows}
