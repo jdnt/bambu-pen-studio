@@ -688,6 +688,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not job or job.get("style") != style: continue
             if ch in job.get("failed_chars", []):
                 job["failed_chars"] = [x for x in job["failed_chars"] if x != ch]
+                job["failed"] = max(0, job.get("failed", 0) - 1)
                 self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job
 
     def _fontgen_regen(self):

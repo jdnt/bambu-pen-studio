@@ -13,6 +13,7 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 .tabs{display:flex;gap:8px;margin-bottom:12px}
 .tabs button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 16px;font:14px inherit;cursor:pointer}
 .tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tabFail{display:inline-block;min-width:17px;padding:0 5px;margin-left:5px;border-radius:9px;background:#dc2626;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700}
 .bar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .bar label{font-size:12px;color:var(--muted)}.bar select,.bar input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:13px inherit;background:#fff}
 .bar button{border:0;border-radius:9px;padding:9px 14px;background:var(--accent);color:#fff;font:13px inherit;cursor:pointer}
@@ -40,8 +41,8 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 <header><h1>字体生成 · 逐字审核</h1><span class="sp"></span><a href="/">← 返回采集板</a></header>
 <main>
   <div class="tabs">
-    <button id="tabHand" class="on">手写体</button>
-    <button id="tabBrush">毛笔</button>
+    <button id="tabHand" class="on">手写体<span class="tabFail" id="tabFailHand" hidden></span></button>
+    <button id="tabBrush">毛笔<span class="tabFail" id="tabFailBrush" hidden></span></button>
   </div>
   <div class="bar">
     <label>字库 <select id="source">
@@ -71,6 +72,7 @@ let batchState = {hand: {job: null, running: false, cancelled: false}, brush: {j
 const stateCache = new Map();
 let batchTimers = {hand: null, brush: null};
 let failedChars = {hand: new Set(), brush: new Set()};
+let failedCounts = {hand: 0, brush: 0};
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
@@ -176,6 +178,8 @@ $("#grid").addEventListener("click", async e => {
     await setCardImage(card, j.preview);
     card.classList.add("approved"); card.classList.remove("off", "failed");
     if (failedChars[reqStyle]) failedChars[reqStyle].delete(ch);
+    failedCounts[reqStyle] = Math.max(0, (failedCounts[reqStyle] || 0) - 1);
+    updateTabBadges();
     card.querySelector(".approve").checked = true;
     setStatus(`「${ch}」已更新`, "var(--ok)");
   } catch (err) { setStatus("生成失败：" + err.message, "var(--bad)"); }
@@ -183,6 +187,15 @@ $("#grid").addEventListener("click", async e => {
 });
 
 function jobKey(st) { return `fontgenJob:${st}`; }
+
+function updateTabBadges() {
+  for (const st of ["hand", "brush"]) {
+    const el = st === "hand" ? $("#tabFailHand") : $("#tabFailBrush");
+    const n = failedCounts[st] || 0;
+    el.textContent = n ? String(n) : "";
+    el.hidden = !n;
+  }
+}
 
 function refreshBatchControls() {
   const s = batchState[style];
@@ -216,7 +229,8 @@ function applyJobItems(items) {
         setCardImage(card, it.preview).finally(() => { delete card.dataset.updating; });
       }
       card.classList.add("approved"); card.classList.remove("off", "failed");
-      if (failedChars[style]) failedChars[style].delete(it.char);
+      if (failedChars[style] && failedChars[style].delete(it.char)) failedCounts[style] = Math.max(0, failedCounts[style] - 1);
+      updateTabBadges();
       const cb = card.querySelector(".approve"); if (cb) cb.checked = true;
     }
   }
@@ -233,6 +247,8 @@ async function pollJob(jobId, jobStyle) {
     s.running = j.status === "running" || j.status === "stopping";
     s.cancelled = j.status === "cancelled" && j.index < j.total;
     failedChars[jobStyle] = new Set(j.failed_chars || []);
+    failedCounts[jobStyle] = Number(j.failed || 0);
+    updateTabBadges();
     if (jobStyle === style) {
       syncFailedClasses();
       if (j.style === style) applyJobItems(j.items || []);
