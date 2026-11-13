@@ -39,7 +39,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .edit-card{background:#fff;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.28);width:min(980px,96vw);max-height:94vh;overflow:auto;padding:16px}
 .edit-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.edit-head b{font-size:15px}.edit-head .close{margin-left:auto}
 .edit-body{display:flex;gap:16px;align-items:flex-start}
+.edit-stage{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 #editCanvas{max-width:min(620px,68vw);max-height:70vh;background:#fff;border:1px solid var(--line);border-radius:10px;cursor:crosshair;touch-action:none}
+.orig-box{display:flex;align-items:center;gap:10px}.orig-box span{font-size:11px;color:var(--muted)}
+#editOriginal{width:150px;height:150px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:8px;padding:4px}
 .edit-controls{width:230px;flex:0 0 230px;display:flex;flex-direction:column;gap:10px}
 .edit-controls label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .edit-controls input[type=range]{width:100%;accent-color:var(--accent)}
@@ -73,7 +76,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <div class="edit-card">
       <div class="edit-head"><b>编辑图片</b><span id="editName" class="badge"></span><button class="close" id="editClose">关闭</button></div>
       <div class="edit-body">
-        <canvas id="editCanvas"></canvas>
+        <div class="edit-stage">
+          <canvas id="editCanvas"></canvas>
+          <div class="orig-box"><span>原图</span><canvas id="editOriginal"></canvas></div>
+        </div>
         <div class="edit-controls">
           <label>亮度 <input id="editBrightness" type="range" min="-100" max="100" value="0"></label>
           <label>对比度 <input id="editContrast" type="range" min="-100" max="100" value="0"></label>
@@ -181,6 +187,8 @@ async function openEditor(id){
   base.getContext("2d").drawImage(img,0,0);
   const mask=document.createElement("canvas"); mask.width=base.width; mask.height=base.height;
   const c=$("#editCanvas"); c.width=base.width; c.height=base.height;
+  const orig=$("#editOriginal"); orig.width=base.width; orig.height=base.height;
+  orig.getContext("2d").drawImage(base,0,0);
   editState.id=id; editState.base=base; editState.mask=mask; editState.maskCtx=mask.getContext("2d"); editState.canvas=c; editState.ctx=c.getContext("2d"); editState.last=null;
   $("#editBrightness").value=0; $("#editContrast").value=0; $("#editBlack").value=0; $("#editGamma").value=100; $("#editMsg").textContent="";
   $("#editName").textContent=(v.char&&v.char!=="?"?v.char:"未识别")+" · "+base.width+"×"+base.height;
