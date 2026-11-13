@@ -66,10 +66,22 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 const PAGE = 120;
 let style = "hand", all = [], page = 0, filtered = [], busy = false, loadSeq = 0;
 let batchState = {hand: {job: null, running: false, cancelled: false}, brush: {job: null, running: false, cancelled: false}};
+const stateCache = new Map();
 let batchTimers = {hand: null, brush: null};
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
+
+async function preloadState(styleName) {
+  const source = $("#source").value;
+  const key = `${styleName}|${source}`;
+  if (stateCache.has(key)) return;
+  try {
+    const r = await fetch(`/api/fontgen/state?style=${styleName}&source=${source}`);
+    const j = await r.json();
+    if (r.ok && j.ok) stateCache.set(key, j.chars || []);
+  } catch (_) {}
+}
 
 async function load(styleName) {
   const seq = ++loadSeq;
@@ -77,19 +89,28 @@ async function load(styleName) {
   $("#tabHand").classList.toggle("on", style === "hand");
   $("#tabBrush").classList.toggle("on", style === "brush");
   $("#formatWrap").style.display = style === "hand" ? "" : "none";
-  setStatus("加载中…");
   const source = $("#source").value;
+  const key = `${style}|${source}`;
+  const showLoaded = () => {
+    const have = all.filter(x => x.preview && !x.missing).length;
+    setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
+    refreshBatchControls();
+    const s = batchState[style];
+    if (s && s.job && s.job.id) renderJobStatus(s.job);
+  };
+  const cached = stateCache.get(key);
+  if (cached) {
+    all = cached; page = 0; applyFilter(); showLoaded();
+    return;
+  }
+  setStatus("加载中…");
   const r = await fetch(`/api/fontgen/state?style=${style}&source=${source}`);
   const j = await r.json();
   if (seq !== loadSeq) return;
   if (!r.ok || !j.ok) { setStatus("加载失败：" + (j.error || r.status), "var(--bad)"); return; }
   all = j.chars || [];
-  page = 0; applyFilter();
-  const have = all.filter(x => x.preview && !x.missing).length;
-  setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
-  refreshBatchControls();
-  const s = batchState[style];
-  if (s && s.job && s.job.id) renderJobStatus(s.job);
+  stateCache.set(key, all);
+  page = 0; applyFilter(); showLoaded();
 }
 
 function applyFilter() {
@@ -305,7 +326,7 @@ $("#tabHand").onclick = () => load("hand");
 $("#tabBrush").onclick = () => load("brush");
 $("#btnReload").onclick = () => load(style);
 $("#search").addEventListener("input", applyFilter);
-$("#source").addEventListener("change", () => load(style));
+$("#source").addEventListener("change", () => { load(style).then(() => preloadState(style === "hand" ? "brush" : "hand")); });
 $("#prev").onclick = () => { if (page > 0) { page--; render(); } };
 $("#next").onclick = () => { const pages = Math.max(1, Math.ceil(filtered.length / PAGE)); if (page + 1 < pages) { page++; render(); } };
 const _oldJob = localStorage.getItem("fontgenJob");
@@ -313,6 +334,7 @@ if (_oldJob && !localStorage.getItem("fontgenJob:hand")) localStorage.setItem("f
 load("hand").then(() => {
   refreshBatchControls();
   pollStoredJobs();
+  preloadState("brush");
 });
 </script>
 </body>
