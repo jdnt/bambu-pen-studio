@@ -311,6 +311,35 @@ class Handler(SimpleHTTPRequestHandler):
             self._font1_persist(st)
             return self._json(200, self._font1_payload(st))
 
+    def _font1_save_edit(self):
+        try:
+            payload = self._font1_body(12 * 1024 * 1024)
+            vid = str(payload.get("id") or "")
+            data = str(payload.get("data") or "")
+            if not vid or not data.startswith("data:image/png;base64,"):
+                raise ValueError("bad id/data")
+            raw = base64.b64decode(data.split(",", 1)[1])
+            if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("not a png")
+        except Exception as e:
+            return self._json(400, {"ok": False, "error": f"bad edit: {e}"})
+        st = self._font1_load()
+        target = next((v for v in st["variants"] if v.get("id") == vid), None)
+        if target is None:
+            return self._json(404, {"ok": False, "error": "not found"})
+        crop = FONT1_DIR / target.get("crop", "")
+        crop.parent.mkdir(parents=True, exist_ok=True)
+        backup_dir = FONT1_DIR / "originals"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / crop.name
+        if crop.exists() and not backup.exists():
+            backup.write_bytes(crop.read_bytes())
+        crop.write_bytes(raw)
+        target["edited"] = True
+        self._font1_persist(st)
+        return self._json(200, {"ok": True, "id": vid, "bytes": len(raw),
+                                "backup": str(backup) if backup.exists() else ""})
+
     def _font1_serve(self, vid):
         st = self._font1_load()
         target = next((v for v in st["variants"] if v.get("id") == vid), None)

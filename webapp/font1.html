@@ -34,6 +34,18 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .note{font-size:12px;color:var(--muted);line-height:1.6}.err{color:#b91c1c;font-size:12px;white-space:pre-wrap}
 #drop{border:2px dashed #cbd5e1;border-radius:12px;padding:20px;text-align:center;color:var(--muted);cursor:pointer}
 #drop:hover{border-color:var(--accent);color:var(--accent)}
+#editModal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:18px}
+#editModal.show{display:flex}
+.edit-card{background:#fff;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.28);width:min(980px,96vw);max-height:94vh;overflow:auto;padding:16px}
+.edit-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.edit-head b{font-size:15px}.edit-head .close{margin-left:auto}
+.edit-body{display:flex;gap:16px;align-items:flex-start}
+#editCanvas{max-width:min(620px,68vw);max-height:70vh;background:#fff;border:1px solid var(--line);border-radius:10px;cursor:crosshair;touch-action:none}
+.edit-controls{width:230px;flex:0 0 230px;display:flex;flex-direction:column;gap:10px}
+.edit-controls label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.edit-controls input[type=range]{width:100%;accent-color:var(--accent)}
+.edit-controls .row{gap:6px}.edit-controls .row button{flex:1;padding:8px 8px;font-size:12px}
+#editHint{font-size:11px;color:var(--muted);line-height:1.6}
+#editMsg{font-size:12px;color:var(--ok);min-height:16px}
 </style>
 </head>
 <body>
@@ -56,6 +68,23 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="card">
     <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>图片块</b><span class="badge">新切出的块全部为 ?；手动填字后才会进入训练</span></div>
     <div id="list"></div>
+  </div>
+  <div id="editModal">
+    <div class="edit-card">
+      <div class="edit-head"><b>编辑图片</b><span id="editName" class="badge"></span><button class="close" id="editClose">关闭</button></div>
+      <div class="edit-body">
+        <canvas id="editCanvas"></canvas>
+        <div class="edit-controls">
+          <label>亮度 <input id="editBrightness" type="range" min="-100" max="100" value="0"></label>
+          <label>对比度 <input id="editContrast" type="range" min="-100" max="100" value="0"></label>
+          <label>橡皮大小 <input id="editBrush" type="range" min="4" max="120" value="28"></label>
+          <div class="row"><button id="editErase" class="primary">橡皮</button><button id="editReset">重置</button></div>
+          <div class="row"><button id="editSave" class="primary">保存并覆盖</button><button id="editCancel">取消</button></div>
+          <div id="editHint">鼠标在图上涂抹即可擦除杂点。保存会覆盖当前 crop，并保留一份原图备份。</div>
+          <div id="editMsg"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </main>
 <script>
@@ -96,13 +125,77 @@ function render(){
   }).join("");
   document.querySelectorAll(".item").forEach(el=>{
     const id=el.dataset.id;
-    el.querySelector("img").onclick=()=>select(id);
+    el.querySelector("img").title="点击编辑（亮度/对比度/橡皮）";
+    el.querySelector("img").onclick=()=>openEditor(id);
     el.querySelector("[data-act=select]").onclick=()=>select(id);
     el.querySelector("[data-act=del]").onclick=()=>del(id);
     const inp=el.querySelector("input.char");
     inp.onchange=()=>saveLabel(id,inp.value);
   });
 }
+/* ---- image editor ---- */
+const editState={id:null, base:null, mask:null, maskCtx:null, canvas:null, ctx:null, drawing:false, last:null};
+function closeEditor(){ $("#editModal").classList.remove("show"); editState.id=null; editState.drawing=false; }
+function redrawEdit(){
+  const c=editState.canvas, base=editState.base, mask=editState.mask;
+  if(!c||!base) return;
+  const b=+$("#editBrightness").value, k=+$("#editContrast").value;
+  const ctx=editState.ctx;
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.save();
+  ctx.filter=`brightness(${(100+b)/100}) contrast(${(100+k)/100})`;
+  ctx.drawImage(base,0,0);
+  ctx.restore();
+  ctx.drawImage(mask,0,0);
+}
+function editPoint(e){
+  const r=editState.canvas.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*editState.canvas.width/r.width, y:(e.clientY-r.top)*editState.canvas.height/r.height};
+}
+function paintEdit(p){
+  const ctx=editState.maskCtx;
+  ctx.strokeStyle="#fff"; ctx.fillStyle="#fff";
+  ctx.lineWidth=+$("#editBrush").value; ctx.lineCap="round"; ctx.lineJoin="round";
+  if(editState.last){ctx.beginPath();ctx.moveTo(editState.last.x,editState.last.y);ctx.lineTo(p.x,p.y);ctx.stroke();}
+  else {ctx.beginPath();ctx.arc(p.x,p.y,+$("#editBrush").value/2,0,Math.PI*2);ctx.fill();}
+  editState.last=p; redrawEdit();
+}
+async function openEditor(id){
+  const v=state.variants.find(x=>x.id===id); if(!v)return;
+  const img=new Image();
+  img.crossOrigin="anonymous";
+  await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=v.url+"?t="+Date.now();}).catch(()=>{alert("图片加载失败");});
+  if(!img.naturalWidth)return;
+  const base=document.createElement("canvas"); base.width=img.naturalWidth; base.height=img.naturalHeight;
+  base.getContext("2d").drawImage(img,0,0);
+  const mask=document.createElement("canvas"); mask.width=base.width; mask.height=base.height;
+  const c=$("#editCanvas"); c.width=base.width; c.height=base.height;
+  editState.id=id; editState.base=base; editState.mask=mask; editState.maskCtx=mask.getContext("2d"); editState.canvas=c; editState.ctx=c.getContext("2d"); editState.last=null;
+  $("#editBrightness").value=0; $("#editContrast").value=0; $("#editMsg").textContent="";
+  $("#editName").textContent=(v.char&&v.char!=="?"?v.char:"未识别")+" · "+base.width+"×"+base.height;
+  $("#editModal").classList.add("show"); redrawEdit();
+}
+$("#editBrightness").oninput=redrawEdit; $("#editContrast").oninput=redrawEdit;
+$("#editCanvas").addEventListener("pointerdown",e=>{e.preventDefault();editState.drawing=true;editState.last=null;editState.canvas.setPointerCapture(e.pointerId);paintEdit(editPoint(e));});
+$("#editCanvas").addEventListener("pointermove",e=>{if(!editState.drawing)return;paintEdit(editPoint(e));});
+["pointerup","pointercancel","pointerleave"].forEach(ev=>$("#editCanvas").addEventListener(ev,()=>{editState.drawing=false;editState.last=null;}));
+$("#editReset").onclick=()=>{editState.maskCtx.clearRect(0,0,editState.mask.width,editState.mask.height);$("#editBrightness").value=0;$("#editContrast").value=0;editState.last=null;redrawEdit();};
+$("#editClose").onclick=closeEditor; $("#editCancel").onclick=closeEditor;
+$("#editModal").addEventListener("click",e=>{if(e.target.id==="editModal")closeEditor();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeEditor();});
+$("#editSave").onclick=async()=>{
+  if(!editState.id)return;
+  const btn=$("#editSave"); btn.disabled=true; btn.textContent="保存中…"; $("#editMsg").textContent="";
+  try{
+    const data=editState.canvas.toDataURL("image/png");
+    const r=await fetch("/api/font1/save-edit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:editState.id,data})});
+    const j=await r.json(); if(!r.ok||!j.ok)throw new Error(j.error||r.status);
+    const id=editState.id; closeEditor(); await load();
+    const img=document.querySelector(`.item[data-id="${id}"] img`); if(img)img.src=state.variants.find(v=>v.id===id).url+"?t="+Date.now();
+  }catch(e){$("#editMsg").textContent="保存失败："+e.message; $("#editMsg").style.color="var(--err)";}
+  finally{btn.disabled=false;btn.textContent="保存并覆盖";}
+};
+
 async function load(){const r=await fetch("/api/font1/state");const j=await r.json();state.variants=j.variants||[];render()}
 async function saveLabel(id,val){
   const ch=(val||"").trim()[0]||"?";
