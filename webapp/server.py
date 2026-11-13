@@ -961,6 +961,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._font1_upload()
         if path in ("/api/font1/label", "/api/font1/select", "/api/font1/delete"):
             return self._font1_update(path.rsplit("/", 1)[1])
+        if path == "/api/font1/save-edit":
+            return self._font1_save_edit()
         if path != "/upload":
             return self.send_error(404)
 
