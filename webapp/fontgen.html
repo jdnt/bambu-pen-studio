@@ -21,6 +21,8 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:10px}
 .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;position:relative}
 .card.approved{border-color:#bbf7d0;background:#f0fdf4}.card.off{opacity:.55}
+.card.failed{border-color:#dc2626!important;box-shadow:0 0 0 3px #fecaca;background:#fff5f5}
+.card.failed .ch{color:#b91c1c}
 .card img{width:78px;height:78px;object-fit:contain;background:#fff;display:block;margin:0 auto}
 .card .ch{font-size:12px;margin:2px 0;font-weight:600}.card .ch small{font-weight:400;color:var(--muted)}
 .card .row{display:flex;gap:4px;justify-content:center;align-items:center}
@@ -68,6 +70,7 @@ let style = "hand", all = [], page = 0, filtered = [], busy = false, loadSeq = 0
 let batchState = {hand: {job: null, running: false, cancelled: false}, brush: {job: null, running: false, cancelled: false}};
 const stateCache = new Map();
 let batchTimers = {hand: null, brush: null};
+let failedChars = {hand: new Set(), brush: new Set()};
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
@@ -123,7 +126,8 @@ function render() {
   const start = page * PAGE, rows = filtered.slice(start, start + PAGE);
   $("#grid").innerHTML = rows.map(x => {
     const ch = x.char;
-    return `<div class="card ${x.approved ? "approved" : "off"}" data-ch="${ch}">
+    const failed = failedChars[style]?.has(ch) ? "failed" : "";
+    return `<div class="card ${x.approved ? "approved" : "off"} ${failed}" data-ch="${ch}">
       <img src="${x.preview}&t=${x.updated || (x.approved ? 1 : Date.now())}" loading="lazy" alt="${ch}">
       <div class="ch">${ch} <small>U+${ch.codePointAt(0).toString(16).toUpperCase()}</small></div>
       <div class="row"><label class="ok"><input type="checkbox" class="approve" ${x.approved ? "checked" : ""}> 保留</label></div>
@@ -170,7 +174,8 @@ $("#grid").addEventListener("click", async e => {
     const x = all.find(z => z.char === ch);
     if (x) { x.approved = true; x.missing = false; x.updated = Date.now(); x.preview = j.preview; }
     await setCardImage(card, j.preview);
-    card.classList.add("approved"); card.classList.remove("off");
+    card.classList.add("approved"); card.classList.remove("off", "failed");
+    if (failedChars[reqStyle]) failedChars[reqStyle].delete(ch);
     card.querySelector(".approve").checked = true;
     setStatus(`「${ch}」已更新`, "var(--ok)");
   } catch (err) { setStatus("生成失败：" + err.message, "var(--bad)"); }
@@ -210,7 +215,8 @@ function applyJobItems(items) {
         card.dataset.updating = "1";
         setCardImage(card, it.preview).finally(() => { delete card.dataset.updating; });
       }
-      card.classList.add("approved"); card.classList.remove("off");
+      card.classList.add("approved"); card.classList.remove("off", "failed");
+      if (failedChars[style]) failedChars[style].delete(it.char);
       const cb = card.querySelector(".approve"); if (cb) cb.checked = true;
     }
   }
@@ -226,7 +232,9 @@ async function pollJob(jobId, jobStyle) {
     s.job = j;
     s.running = j.status === "running" || j.status === "stopping";
     s.cancelled = j.status === "cancelled" && j.index < j.total;
+    failedChars[jobStyle] = new Set(j.failed_chars || []);
     if (jobStyle === style) {
+      syncFailedClasses();
       if (j.style === style) applyJobItems(j.items || []);
       renderJobStatus(j);
       refreshBatchControls();
@@ -244,6 +252,12 @@ async function pollJob(jobId, jobStyle) {
     if (jobStyle === style) setStatus("任务状态查询失败：" + e.message, "var(--bad)");
     batchTimers[jobStyle] = setTimeout(() => pollJob(jobId, jobStyle), 3000);
   }
+}
+
+function syncFailedClasses() {
+  document.querySelectorAll(".card").forEach(card => {
+    card.classList.toggle("failed", failedChars[style].has(card.dataset.ch));
+  });
 }
 
 function pollStoredJobs() {
@@ -299,9 +313,6 @@ async function stopBatch() {
   try { await fetch("/api/fontgen/batch/stop", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job})}); } catch (_) {}
 }
 
-$("#btnAll").addEventListener("click", regenerateAll);
-$("#btnAllStop").addEventListener("click", stopBatch);
-$("#btnResume").addEventListener("click", resumeBatch);
 $("#btnAll").addEventListener("click", regenerateAll);
 $("#btnAllStop").addEventListener("click", stopBatch);
 $("#btnResume").addEventListener("click", resumeBatch);

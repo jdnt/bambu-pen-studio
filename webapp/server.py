@@ -682,6 +682,14 @@ class Handler(SimpleHTTPRequestHandler):
         st[style] = over; self._fontgen_save(st)
         return f"/api/fontgen/preview?style={style}&ch={quote(ch)}"
 
+    def _fontgen_clear_failed(self, style, ch):
+        for jid in list(FONTGEN_JOBS.keys()):
+            job = self._fontgen_job_load(jid)
+            if not job or job.get("style") != style: continue
+            if ch in job.get("failed_chars", []):
+                job["failed_chars"] = [x for x in job["failed_chars"] if x != ch]
+                self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job
+
     def _fontgen_regen(self):
         try:
             payload = self._font1_body(2 * 1024 * 1024)
@@ -691,6 +699,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {"ok": False, "error": str(e)})
         try:
             preview = self._fontgen_regen_one(style, ch)
+            self._fontgen_clear_failed(style, ch)
             return self._json(200, {"ok": True, "preview": preview})
         except Exception as e:
             return self._json(500, {"ok": False, "error": str(e)})
@@ -728,7 +737,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json(409, {"ok": False, "error": f"{style} 已有批量任务在运行", "job": j.get("id")})
             chars = [x["char"] for x in self._fontgen_chars(style, source)]
             job = {"id": time.strftime("%Y%m%d-%H%M%S"), "style": style, "source": source,
-                   "chars": chars, "index": 0, "done": 0, "failed": 0,
+                   "chars": chars, "index": 0, "done": 0, "failed": 0, "failed_chars": [],
                    "status": "running", "current": "", "started": time.time(), "updated": time.time(), "items": []}
             FONTGEN_JOBS[job["id"]] = job
             self._fontgen_job_save(job)
@@ -749,8 +758,13 @@ class Handler(SimpleHTTPRequestHandler):
                 preview = self._fontgen_regen_one(job["style"], ch)
                 job["done"] = job.get("done", 0) + 1
                 job["items"] = (job.get("items", []) + [{"char": ch, "preview": preview, "updated": time.time()}])[-200:]
+                if ch in job.get("failed_chars", []):
+                    job["failed_chars"] = [x for x in job["failed_chars"] if x != ch]
             except Exception:
                 job["failed"] = job.get("failed", 0) + 1
+                job.setdefault("failed_chars", [])
+                if ch not in job["failed_chars"]:
+                    job["failed_chars"].append(ch)
             disk = self._fontgen_job_load(jid)
             if disk and disk.get("status") == "stopping":
                 job["index"] = i + 1; job["status"] = "cancelled"; job["updated"] = time.time()
