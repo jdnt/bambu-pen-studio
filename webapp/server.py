@@ -42,6 +42,7 @@ FONT_PY = os.environ.get("HW_FONT_PY", "/root/model-lab/venv/bin/python")
 FONT_WORKER_SCRIPT = WEB_DIR / "font_worker.py"
 AI_LOCK = threading.Lock()
 AI_LOCKS = {0: threading.Lock(), 1: threading.Lock()}
+FONTGEN_STATE_LOCK = threading.RLock()
 AI_WORKERS = {}
 SINGLE_ADAPTER = False
 FONT_LOCK = threading.Lock()
@@ -537,6 +538,10 @@ class Handler(SimpleHTTPRequestHandler):
             return {"hand": {}, "brush": {}}
 
     def _fontgen_save(self, st):
+        with FONTGEN_STATE_LOCK:
+            self._fontgen_save_unlocked(st)
+
+    def _fontgen_save_unlocked(self, st):
         FONTGEN_DIR.mkdir(parents=True, exist_ok=True)
         tmp = FONTGEN_STATE.with_suffix(".tmp")
         tmp.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
@@ -666,20 +671,21 @@ class Handler(SimpleHTTPRequestHandler):
             line = worker.stdout.readline()
         data = json.loads(line)
         if not data.get("ok"): raise RuntimeError(data.get("error", "worker failed"))
-        st = self._fontgen_load()
-        over = st.setdefault(style, {})
-        if style == "brush":
-            img = (data.get("images") or {}).get(ch)
-            if not img: raise RuntimeError("no image")
-            b64 = img.split(",", 1)[1]
-            (FONTGEN_DIR / "brush").mkdir(parents=True, exist_ok=True)
-            (FONTGEN_DIR / "brush" / f"{ch}.png").write_bytes(base64.b64decode(b64))
-            over[ch] = {"approved": True}
-        else:
-            vs = (data.get("variants") or {}).get(ch) or []
-            if not vs: raise RuntimeError("no strokes")
-            over[ch] = {"approved": True, "strokes": vs[0]}
-        st[style] = over; self._fontgen_save(st)
+        with FONTGEN_STATE_LOCK:
+            st = self._fontgen_load()
+            over = st.setdefault(style, {})
+            if style == "brush":
+                img = (data.get("images") or {}).get(ch)
+                if not img: raise RuntimeError("no image")
+                b64 = img.split(",", 1)[1]
+                (FONTGEN_DIR / "brush").mkdir(parents=True, exist_ok=True)
+                (FONTGEN_DIR / "brush" / f"{ch}.png").write_bytes(base64.b64decode(b64))
+                over[ch] = {"approved": True}
+            else:
+                vs = (data.get("variants") or {}).get(ch) or []
+                if not vs: raise RuntimeError("no strokes")
+                over[ch] = {"approved": True, "strokes": vs[0]}
+            st[style] = over; self._fontgen_save_unlocked(st)
         return f"/api/fontgen/preview?style={style}&ch={quote(ch)}"
 
     def _fontgen_clear_failed(self, style, ch):
@@ -835,9 +841,10 @@ class Handler(SimpleHTTPRequestHandler):
             payload = self._font1_body(1024 * 1024)
             style = payload.get("style", "hand"); ch = str(payload.get("char", ""))
             if len(ch) != 1: raise ValueError("bad char")
-            st = self._fontgen_load(); over = st.setdefault(style, {})
-            over.setdefault(ch, {})["approved"] = bool(payload.get("approved", True))
-            st[style] = over; self._fontgen_save(st)
+            with FONTGEN_STATE_LOCK:
+                st = self._fontgen_load(); over = st.setdefault(style, {})
+                over.setdefault(ch, {})["approved"] = bool(payload.get("approved", True))
+                st[style] = over; self._fontgen_save_unlocked(st)
             return self._json(200, {"ok": True})
         except Exception as e:
             return self._json(400, {"ok": False, "error": str(e)})
