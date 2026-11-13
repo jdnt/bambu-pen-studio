@@ -728,6 +728,24 @@ class Handler(SimpleHTTPRequestHandler):
         out["ok"] = True
         return self._json(200, out)
 
+    def _fontgen_batch_resume(self):
+        try:
+            payload = self._font1_body(1024 * 1024)
+            jid = str(payload.get("job", ""))
+        except Exception as e:
+            return self._json(400, {"ok": False, "error": str(e)})
+        job = self._fontgen_job_load(jid)
+        if not job:
+            return self._json(404, {"ok": False, "error": "job not found"})
+        if job.get("status") in ("running", "stopping"):
+            return self._json(409, {"ok": False, "error": "任务仍在运行", "job": jid})
+        if job.get("index", 0) >= len(job.get("chars", [])):
+            return self._json(409, {"ok": False, "error": "任务已完成", "job": jid})
+        job["status"] = "running"; job["updated"] = time.time()
+        self._fontgen_job_save(job)
+        threading.Thread(target=self._fontgen_batch_run, args=(jid,), daemon=True).start()
+        return self._json(200, {"ok": True, "job": jid, "index": job.get("index", 0)})
+
     def _fontgen_batch_stop(self):
         try:
             payload = self._font1_body(1024 * 1024); jid = str(payload.get("job", ""))
@@ -890,6 +908,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._fontgen_batch_start()
         if path == "/api/fontgen/batch/stop":
             return self._fontgen_batch_stop()
+        if path == "/api/fontgen/batch/resume":
+            return self._fontgen_batch_resume()
         if path == "/api/ai-glyph":
             return self._ai_glyph()
         if path == "/api/ai-variants":

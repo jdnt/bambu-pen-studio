@@ -52,6 +52,7 @@ main{max-width:1280px;margin:0 auto;padding:16px}
     <label>搜索 <input id="search" placeholder="字或页码"></label>
     <button id="btnAll">一键全部生成</button>
     <button id="btnAllStop" class="ghost" hidden>停止</button>
+    <button id="btnResume" class="ghost" hidden>继续任务</button>
     <button id="btnBuild">生成字体</button>
     <button id="btnReload" class="ghost">刷新</button>
   </div>
@@ -190,15 +191,38 @@ async function pollJob(jobId) {
       batchTimer = setTimeout(() => pollJob(jobId), 1500);
     } else {
       setBatchUI(false);
-      localStorage.removeItem("fontgenJob");
-      const label = j.status === "done" ? "已完成" : "已停止";
-      setStatus(`任务${label}：${j.done}/${j.total} 字，失败 ${j.failed}`, j.status === "done" ? "var(--ok)" : "var(--bad)");
-      await load(style);
+      if (j.status === "cancelled" && j.index < j.total) {
+        $("#btnResume").hidden = false;
+        setStatus(`任务已暂停：${j.done}/${j.total}（${pct}%），可点「继续任务」断点续传`, "var(--bad)");
+      } else {
+        localStorage.removeItem("fontgenJob");
+        $("#btnResume").hidden = true;
+        const label = j.status === "done" ? "已完成" : "已停止";
+        setStatus(`任务${label}：${j.done}/${j.total} 字，失败 ${j.failed}`, j.status === "done" ? "var(--ok)" : "var(--bad)");
+        await load(style);
+      }
     }
   } catch (e) {
     setStatus("任务状态查询失败：" + e.message, "var(--bad)");
     batchTimer = setTimeout(() => pollJob(jobId), 3000);
   }
+}
+
+async function resumeBatch() {
+  const job = localStorage.getItem("fontgenJob");
+  if (!job) { setStatus("没有可继续的任务", "var(--bad)"); return; }
+  $("#btnResume").disabled = true;
+  try {
+    const r = await fetch("/api/fontgen/batch/resume", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job})});
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    setBatchUI(true);
+    $("#btnResume").hidden = true;
+    setStatus(`从第 ${j.index} 个字继续…`);
+    pollJob(job);
+  } catch (e) {
+    setStatus("继续失败：" + e.message, "var(--bad)");
+  } finally { $("#btnResume").disabled = false; }
 }
 
 async function regenerateAll() {
@@ -231,6 +255,7 @@ async function stopBatch() {
 
 $("#btnAll").addEventListener("click", regenerateAll);
 $("#btnAllStop").addEventListener("click", stopBatch);
+$("#btnResume").addEventListener("click", resumeBatch);
 
 $("#btnBuild").addEventListener("click", async () => {
   const fmt = style === "hand" ? $("#format").value : "ttf";
