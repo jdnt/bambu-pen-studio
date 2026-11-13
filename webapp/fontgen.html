@@ -65,7 +65,8 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 <script>
 const PAGE = 120;
 let style = "hand", all = [], page = 0, filtered = [], busy = false, loadSeq = 0;
-let batchRunning = false, batchStop = false;
+let batchState = {hand: {job: null, running: false, cancelled: false}, brush: {job: null, running: false, cancelled: false}};
+let batchTimers = {hand: null, brush: null};
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
@@ -86,6 +87,9 @@ async function load(styleName) {
   page = 0; applyFilter();
   const have = all.filter(x => x.preview && !x.missing).length;
   setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
+  refreshBatchControls();
+  const s = batchState[style];
+  if (s && s.job && s.job.id) renderJobStatus(s.job);
 }
 
 function applyFilter() {
@@ -152,12 +156,27 @@ $("#grid").addEventListener("click", async e => {
   finally { busy = false; btn.disabled = false; btn.textContent = "重生成"; }
 });
 
-let batchTimer = null;
-function setBatchUI(on) {
-  batchRunning = on;
-  $("#btnAll").disabled = on;
-  $("#btnBuild").disabled = on;
-  $("#btnAllStop").hidden = !on;
+function jobKey(st) { return `fontgenJob:${st}`; }
+
+function refreshBatchControls() {
+  const s = batchState[style];
+  $("#btnAll").disabled = !!s.running;
+  $("#btnAllStop").hidden = !s.running;
+  $("#btnResume").hidden = !s.cancelled;
+  $("#btnBuild").disabled = false;
+}
+
+function jobLabel(j) { return j.style === "brush" ? "毛笔" : "手写"; }
+
+function renderJobStatus(j) {
+  const pct = j.total ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0;
+  if (j.status === "running" || j.status === "stopping") {
+    setStatus(`${jobLabel(j)}任务 ${j.id} · ${j.done}/${j.total}（${pct}%）· 当前「${j.current || "…"}」· 失败 ${j.failed}`);
+  } else if (j.status === "cancelled" && j.index < j.total) {
+    setStatus(`${jobLabel(j)}任务已暂停：${j.done}/${j.total}（${pct}%），可点「继续任务」断点续传`, "var(--bad)");
+  } else {
+    setStatus(`${jobLabel(j)}任务${j.status === "done" ? "已完成" : "已停止"}：${j.done}/${j.total}，失败 ${j.failed}`, j.status === "done" ? "var(--ok)" : "var(--bad)");
+  }
 }
 
 function applyJobItems(items) {
@@ -176,83 +195,92 @@ function applyJobItems(items) {
   }
 }
 
-async function pollJob(jobId) {
-  if (batchTimer) clearTimeout(batchTimer);
+async function pollJob(jobId, jobStyle) {
+  if (batchTimers[jobStyle]) clearTimeout(batchTimers[jobStyle]);
   try {
     const r = await fetch(`/api/fontgen/batch/status?job=${encodeURIComponent(jobId)}`);
     const j = await r.json();
     if (!r.ok || !j.ok) throw new Error(j.error || r.status);
-    // never apply a hand job's items onto the brush grid (or vice versa)
-    if (j.style === style) applyJobItems(j.items || []);
-    const pct = j.total ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0;
-    if (j.status === "running" || j.status === "stopping") {
-      setStatus(`服务端任务 ${j.id} · ${j.done}/${j.total}（${pct}%）· 当前「${j.current || "…"}」· 失败 ${j.failed}`);
-      setBatchUI(true);
-      batchTimer = setTimeout(() => pollJob(jobId), 1500);
-    } else {
-      setBatchUI(false);
-      if (j.status === "cancelled" && j.index < j.total) {
-        $("#btnResume").hidden = false;
-        setStatus(`任务已暂停：${j.done}/${j.total}（${pct}%），可点「继续任务」断点续传`, "var(--bad)");
-      } else {
-        localStorage.removeItem("fontgenJob");
-        $("#btnResume").hidden = true;
-        const label = j.status === "done" ? "已完成" : "已停止";
-        setStatus(`任务${label}：${j.done}/${j.total} 字，失败 ${j.failed}`, j.status === "done" ? "var(--ok)" : "var(--bad)");
-        await load(style);
-      }
+    const s = batchState[jobStyle];
+    s.job = j;
+    s.running = j.status === "running" || j.status === "stopping";
+    s.cancelled = j.status === "cancelled" && j.index < j.total;
+    if (jobStyle === style) {
+      if (j.style === style) applyJobItems(j.items || []);
+      renderJobStatus(j);
+      refreshBatchControls();
+    }
+    if (s.running) {
+      batchTimers[jobStyle] = setTimeout(() => pollJob(jobId, jobStyle), 1500);
+    } else if (j.status === "done") {
+      localStorage.removeItem(jobKey(jobStyle));
+      s.job = null; s.running = false; s.cancelled = false;
+      if (jobStyle === style) { refreshBatchControls(); await load(style); }
+    } else if (jobStyle === style) {
+      refreshBatchControls();
     }
   } catch (e) {
-    setStatus("任务状态查询失败：" + e.message, "var(--bad)");
-    batchTimer = setTimeout(() => pollJob(jobId), 3000);
+    if (jobStyle === style) setStatus("任务状态查询失败：" + e.message, "var(--bad)");
+    batchTimers[jobStyle] = setTimeout(() => pollJob(jobId, jobStyle), 3000);
+  }
+}
+
+function pollStoredJobs() {
+  for (const st of ["hand", "brush"]) {
+    const id = localStorage.getItem(jobKey(st));
+    if (id) { batchState[st].job = id; pollJob(id, st); }
   }
 }
 
 async function resumeBatch() {
-  const job = localStorage.getItem("fontgenJob");
+  const job = localStorage.getItem(jobKey(style));
   if (!job) { setStatus("没有可继续的任务", "var(--bad)"); return; }
   $("#btnResume").disabled = true;
   try {
     const r = await fetch("/api/fontgen/batch/resume", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job})});
     const j = await r.json();
     if (!r.ok || !j.ok) throw new Error(j.error || r.status);
-    setBatchUI(true);
-    $("#btnResume").hidden = true;
+    batchState[style].running = true; batchState[style].cancelled = false;
+    refreshBatchControls();
     setStatus(`从第 ${j.index} 个字继续…`);
-    pollJob(job);
+    pollJob(job, style);
   } catch (e) {
     setStatus("继续失败：" + e.message, "var(--bad)");
   } finally { $("#btnResume").disabled = false; }
 }
 
 async function regenerateAll() {
-  if (batchRunning) return;
+  if (batchState[style].running) return;
   const total = all.length;
-  const label = style === "hand" ? "手写" : "毛笔";
   if (!total) return;
-  const ok = window.confirm(`将在服务端用${label}模型重新生成全部 ${total} 个字。\n\n关闭浏览器任务仍会继续；确定开始吗？`);
+  const label = style === "hand" ? "手写" : "毛笔";
+  const ok = window.confirm(`将在服务端用${label}模型重新生成全部 ${total} 个字。\n\n可以同时另开另一个标签的任务；确定开始吗？`);
   if (!ok) return;
-  setBatchUI(true);
-  setStatus("正在创建服务端任务…");
+  setStatus(`正在创建${label}任务…`);
   try {
     const r = await fetch("/api/fontgen/batch/start", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source:$("#source").value})});
     const j = await r.json();
     if (!r.ok || !j.ok) throw new Error(j.error || r.status);
-    localStorage.setItem("fontgenJob", j.job);
-    pollJob(j.job);
+    localStorage.setItem(jobKey(style), j.job);
+    batchState[style] = {job: j.job, running: true, cancelled: false};
+    refreshBatchControls();
+    pollJob(j.job, style);
   } catch (e) {
-    setBatchUI(false);
+    refreshBatchControls();
     setStatus("创建任务失败：" + e.message, "var(--bad)");
   }
 }
 
 async function stopBatch() {
-  const job = localStorage.getItem("fontgenJob");
-  if (!job) return;
-  setStatus("正在停止服务端任务…");
+  const job = localStorage.getItem(jobKey(style));
+  if (!job) { setStatus("当前标签没有运行中的任务", "var(--bad)"); return; }
+  setStatus("正在停止当前标签的服务端任务…");
   try { await fetch("/api/fontgen/batch/stop", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job})}); } catch (_) {}
 }
 
+$("#btnAll").addEventListener("click", regenerateAll);
+$("#btnAllStop").addEventListener("click", stopBatch);
+$("#btnResume").addEventListener("click", resumeBatch);
 $("#btnAll").addEventListener("click", regenerateAll);
 $("#btnAllStop").addEventListener("click", stopBatch);
 $("#btnResume").addEventListener("click", resumeBatch);
@@ -273,19 +301,18 @@ $("#btnBuild").addEventListener("click", async () => {
   finally { btn.disabled = false; btn.textContent = "生成字体"; }
 });
 
-$("#tabHand").onclick = () => load("hand").then(() => {
-  const job = localStorage.getItem("fontgenJob");
-  if (job) pollJob(job);
-});
+$("#tabHand").onclick = () => load("hand");
 $("#tabBrush").onclick = () => load("brush");
 $("#btnReload").onclick = () => load(style);
 $("#search").addEventListener("input", applyFilter);
 $("#source").addEventListener("change", () => load(style));
 $("#prev").onclick = () => { if (page > 0) { page--; render(); } };
 $("#next").onclick = () => { const pages = Math.max(1, Math.ceil(filtered.length / PAGE)); if (page + 1 < pages) { page++; render(); } };
+const _oldJob = localStorage.getItem("fontgenJob");
+if (_oldJob && !localStorage.getItem("fontgenJob:hand")) localStorage.setItem("fontgenJob:hand", _oldJob);
 load("hand").then(() => {
-  const job = localStorage.getItem("fontgenJob");
-  if (job) pollJob(job);
+  refreshBatchControls();
+  pollStoredJobs();
 });
 </script>
 </body>

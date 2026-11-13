@@ -41,6 +41,7 @@ AI_WORKER_SCRIPT = WEB_DIR / "ai_worker.py"
 FONT_PY = os.environ.get("HW_FONT_PY", "/root/model-lab/venv/bin/python")
 FONT_WORKER_SCRIPT = WEB_DIR / "font_worker.py"
 AI_LOCK = threading.Lock()
+AI_LOCKS = {0: threading.Lock(), 1: threading.Lock()}
 AI_WORKERS = {}
 SINGLE_ADAPTER = False
 FONT_LOCK = threading.Lock()
@@ -431,7 +432,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(500, {"ok": False, "error": data.get("error", "fontdiffuser failed")})
             return self._json(200, {"ok": True, "strokes": data.get("strokes", {})})
         try:
-            with AI_LOCK:
+            with AI_LOCKS[font]:
                 worker = self._ensure_worker(font)
                 worker.stdin.write(json.dumps({"chars": chars, "font": font}, ensure_ascii=False) + "\n")
                 worker.stdin.flush()
@@ -477,7 +478,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(500, {"ok": False, "error": data.get("error", "fontdiffuser failed")})
             return self._json(200, {"ok": True, "variants": data.get("variants", {}), "images": data.get("images", {})})
         try:
-            with AI_LOCK:
+            with AI_LOCKS[font]:
                 worker = self._ensure_worker(font)
                 worker.stdin.write(json.dumps({"chars": chars, "variants": True, "font": font}, ensure_ascii=False) + "\n")
                 worker.stdin.flush()
@@ -626,7 +627,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _fontgen_regen_one(self, style, ch):
         if len(ch) != 1: raise ValueError("bad char")
         font = 1 if style == "brush" else 0
-        with AI_LOCK:
+        with AI_LOCKS[font]:
             worker = self._ensure_worker(font)
             worker.stdin.write(json.dumps({"chars": [ch], "variants": True, "font": font}, ensure_ascii=False) + "\n")
             worker.stdin.flush()
@@ -688,8 +689,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {"ok": False, "error": str(e)})
         with FONTGEN_JOB_LOCK:
             for j in FONTGEN_JOBS.values():
-                if j.get("status") in ("running", "stopping"):
-                    return self._json(409, {"ok": False, "error": "已有批量任务在运行", "job": j.get("id")})
+                if j.get("status") in ("running", "stopping") and j.get("style") == style:
+                    return self._json(409, {"ok": False, "error": f"{style} 已有批量任务在运行", "job": j.get("id")})
             chars = [x["char"] for x in self._fontgen_chars(style, source)]
             job = {"id": time.strftime("%Y%m%d-%H%M%S"), "style": style, "source": source,
                    "chars": chars, "index": 0, "done": 0, "failed": 0,
@@ -715,6 +716,10 @@ class Handler(SimpleHTTPRequestHandler):
                 job["items"] = (job.get("items", []) + [{"char": ch, "preview": preview, "updated": time.time()}])[-200:]
             except Exception:
                 job["failed"] = job.get("failed", 0) + 1
+            disk = self._fontgen_job_load(jid)
+            if disk and disk.get("status") == "stopping":
+                job["index"] = i + 1; job["status"] = "cancelled"; job["updated"] = time.time()
+                self._fontgen_job_save(job); return
             job["index"] = i + 1; job["updated"] = time.time()
             self._fontgen_job_save(job)
         job["status"] = "done"; job["current"] = ""; job["updated"] = time.time(); self._fontgen_job_save(job)
