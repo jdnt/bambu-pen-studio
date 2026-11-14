@@ -380,6 +380,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._fontgen_download()
         if path == "/api/fontgen/batch/status":
             return self._fontgen_batch_status()
+        if path == "/api/fontgen/batch/active":
+            return self._fontgen_batch_active()
         if path.startswith("/font1-img/"):
             return self._font1_serve(path.split("/font1-img/", 1)[1])
         return super().do_GET()
@@ -780,6 +782,20 @@ class Handler(SimpleHTTPRequestHandler):
             self._fontgen_job_save(job)
         job["status"] = "done"; job["current"] = ""; job["updated"] = time.time()
         self._fontgen_job_save(job); FONTGEN_JOBS[jid] = job
+
+    def _fontgen_batch_active(self):
+        out = []
+        for p in sorted(FONTGEN_JOBS_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+            try:
+                job = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if job.get("status") in ("running", "stopping"):
+                out.append({"id": job.get("id"), "style": job.get("style"), "status": job.get("status"),
+                            "done": job.get("done", 0), "failed": job.get("failed", 0),
+                            "current": job.get("current", ""), "total": len(job.get("chars", [])),
+                            "index": job.get("index", 0), "source": job.get("source", "mine")})
+        return self._json(200, {"ok": True, "jobs": out})
 
     def _fontgen_batch_status(self):
         qs = parse_qs(urlparse(self.path).query); jid = (qs.get("job") or [""])[0]

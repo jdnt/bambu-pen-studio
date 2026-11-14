@@ -276,12 +276,37 @@ function syncFailedClasses() {
   });
 }
 
-function pollStoredJobs() {
+async function discoverActiveJobs() {
+  try {
+    const r = await fetch("/api/fontgen/batch/active", {cache: "no-store"});
+    const j = await r.json();
+    if (!r.ok || !j.ok) return;
+    const src = (j.jobs || []).find(x => x.source)?.source;
+    if (src && $("#source").value !== src) { $("#source").value = src; load(style); }
+    for (const job of j.jobs || []) {
+      const st = job.style;
+      if (st !== "hand" && st !== "brush") continue;
+      const key = jobKey(st);
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, job.id);
+        batchState[st].job = job.id;
+        pollJob(job.id, st);
+      }
+    }
+  } catch (_) {}
+}
+
+async function pollStoredJobs() {
+  await discoverActiveJobs();
   for (const st of ["hand", "brush"]) {
     const id = localStorage.getItem(jobKey(st));
     if (id) { batchState[st].job = id; pollJob(id, st); }
   }
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) pollStoredJobs();
+});
 
 async function resumeBatch() {
   const job = localStorage.getItem(jobKey(style));
