@@ -26,6 +26,7 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 .card.failed .ch{color:#b91c1c}
 .card img{width:78px;height:78px;object-fit:contain;background:#fff;display:block;margin:0 auto}
 .card .ch{font-size:12px;margin:2px 0;font-weight:600}.card .ch small{font-weight:400;color:var(--muted)}
+.card .size{font-size:10px;color:#b45309;margin:1px 0}
 .card .row{display:flex;gap:4px;justify-content:center;align-items:center}
 .card button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:3px 7px;cursor:pointer;font-size:12px}
 .card button:hover{border-color:var(--accent);color:var(--accent)}
@@ -53,6 +54,7 @@ main{max-width:1280px;margin:0 auto;padding:16px}
     </select></label>
     <label id="formatWrap">输出 <select id="format"><option value="ttf">标准 TTF（Word 可用）</option><option value="single">单线 SVG 包</option></select></label>
     <label>搜索 <input id="search" placeholder="字或页码"></label>
+    <button id="btnLargest" class="ghost">最大字</button>
     <button id="btnAll">一键全部生成</button>
     <button id="btnAllStop" class="ghost" hidden>停止</button>
     <button id="btnResume" class="ghost" hidden>继续任务</button>
@@ -74,6 +76,8 @@ let batchTimers = {hand: null, brush: null};
 let failedChars = {hand: new Set(), brush: new Set()};
 let failedCounts = {hand: 0, brush: 0};
 let building = false;
+let largestLoading = false;
+let largestMode = false;
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
@@ -96,10 +100,11 @@ async function load(styleName) {
   $("#tabBrush").classList.toggle("on", style === "brush");
   $("#formatWrap").style.display = style === "hand" ? "" : "none";
   const source = $("#source").value;
+  largestMode = false;
   const key = `${style}|${source}`;
   const showLoaded = () => {
     const have = all.filter(x => x.preview && !x.missing).length;
-    if (!building) setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
+    if (!building && !largestLoading) setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
     refreshBatchControls();
     const s = batchState[style];
     if (!building && s && s.job && s.job.id) renderJobStatus(s.job);
@@ -109,7 +114,7 @@ async function load(styleName) {
     all = cached; page = 0; applyFilter(); showLoaded();
     return;
   }
-  if (!building) setStatus("加载中…");
+  if (!building && !largestLoading) setStatus("加载中…");
   const r = await fetch(`/api/fontgen/state?style=${style}&source=${source}`);
   const j = await r.json();
   if (seq !== loadSeq) return;
@@ -120,6 +125,7 @@ async function load(styleName) {
 }
 
 function applyFilter() {
+  largestMode = false;
   const q = ($("#search").value || "").trim();
   filtered = q ? all.filter(x => x.char.includes(q)) : all.slice();
   page = 0; render();
@@ -133,6 +139,7 @@ function render() {
     return `<div class="card ${x.approved ? "approved" : "off"} ${failed}" data-ch="${ch}">
       <img src="${x.preview}&t=${x.updated || (x.approved ? 1 : Date.now())}" loading="lazy" alt="${ch}">
       <div class="ch">${ch} <small>U+${ch.codePointAt(0).toString(16).toUpperCase()}</small></div>
+      ${x.measure ? `<div class="size">${x.measure.w}×${x.measure.h}</div>` : ""}
       <div class="row"><label class="ok"><input type="checkbox" class="approve" ${x.approved ? "checked" : ""}> 保留</label></div>
       <div class="row"><button class="regen">重生成</button></div>
     </div>`;
@@ -253,7 +260,7 @@ async function pollJob(jobId, jobStyle) {
     if (jobStyle === style) {
       syncFailedClasses();
       if (j.style === style) applyJobItems(j.items || []);
-      if (!building) renderJobStatus(j);
+      if (!building && !largestLoading) renderJobStatus(j);
       refreshBatchControls();
     }
     if (s.running) {
@@ -358,6 +365,23 @@ async function stopBatch() {
 $("#btnAll").addEventListener("click", regenerateAll);
 $("#btnAllStop").addEventListener("click", stopBatch);
 $("#btnResume").addEventListener("click", resumeBatch);
+
+$("#btnLargest").addEventListener("click", async () => {
+  const btn = $("#btnLargest"); btn.disabled = true; btn.textContent = "测量中…"; largestLoading = true;
+  setStatus("正在测量最大字形，字多时需要几秒…");
+  try {
+    const r = await fetch("/api/fontgen/largest", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source:$("#source").value,limit:20})});
+    const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error || r.status);
+    const byChar = new Map((j.items || []).map(x => [x.char, x]));
+    filtered = (j.items || []).map(x => {
+      const row = all.find(z => z.char === x.char) || {char:x.char, preview:`/api/fontgen/preview?style=${style}&ch=${encodeURIComponent(x.char)}`, approved:true, missing:false};
+      return {...row, measure:x};
+    });
+    largestMode = true; page = 0; render();
+    setStatus(`最大字形 Top ${filtered.length}（按字形 bbox 最大边排序）`, "var(--ok)");
+  } catch (e) { setStatus("测量失败：" + e.message, "var(--bad)"); }
+  finally { largestLoading = false; btn.disabled = false; btn.textContent = "最大字"; }
+});
 
 $("#btnBuild").addEventListener("click", async () => {
   const fmt = style === "hand" ? $("#format").value : "ttf";

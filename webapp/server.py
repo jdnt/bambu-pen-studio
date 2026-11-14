@@ -870,6 +870,53 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             return self._json(400, {"ok": False, "error": str(e)})
 
+    def _fontgen_largest(self):
+        try:
+            payload = self._font1_body(2 * 1024 * 1024)
+            style = payload.get("style", "hand")
+            source = payload.get("source", "mine")
+            limit = max(1, min(50, int(payload.get("limit", 20))))
+        except Exception as e:
+            return self._json(400, {"ok": False, "error": str(e)})
+        try:
+            fst = self._fontgen_load(); over = fst.get(style, {})
+            items = []
+            if style == "hand":
+                main = self._load_state()
+                chars = list(main.get("chars", []))
+                if source in ("gb2312", "big5", "both"):
+                    chars = list(dict.fromkeys(self._fontgen_std_chars(source) + chars))
+                for ch in chars:
+                    if over.get(ch, {}).get("approved") is False: continue
+                    src = over.get(ch, {}).get("strokes") or main.get("strokes", {}).get(ch)
+                    if src: items.append({"char": ch, "strokes": src})
+            else:
+                f1 = self._font1_load()
+                have = set()
+                for v in f1.get("variants", []):
+                    ch = v.get("char")
+                    if not v.get("selected") or ch in (None, "", "?"): continue
+                    have.add(ch)
+                    if over.get(ch, {}).get("approved") is False: continue
+                    img = FONTGEN_DIR / "brush" / f"{ch}.png"
+                    if not img.exists(): img = FONT1_DIR / v.get("crop", "")
+                    if img.exists(): items.append({"char": ch, "image": str(img)})
+                for ch in self._fontgen_std_chars(source):
+                    if ch in have or ch in self._fontgen_punct(): continue
+                    img = FONTGEN_DIR / "brush" / f"{ch}.png"
+                    if img.exists() and over.get(ch, {}).get("approved") is not False:
+                        items.append({"char": ch, "image": str(img)})
+            proc = subprocess.run(["/root/venvs/fontai/bin/python", str(Path(__file__).with_name("fontgen_largest.py"))],
+                                  input=json.dumps({"items": items}, ensure_ascii=False),
+                                  capture_output=True, text=True, timeout=180)
+            if proc.returncode != 0:
+                return self._json(500, {"ok": False, "error": proc.stderr[-500:] or "measure failed"})
+            data = json.loads(proc.stdout)
+            data["items"] = data.get("items", [])[:limit]
+            return self._json(200, data)
+        except Exception as e:
+            return self._json(500, {"ok": False, "error": str(e)})
+
     def _fontgen_build(self):
         try:
             payload = self._font1_body(2 * 1024 * 1024)
@@ -994,6 +1041,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._fontgen_approve()
         if path == "/api/fontgen/build":
             return self._fontgen_build()
+        if path == "/api/fontgen/largest":
+            return self._fontgen_largest()
         if path == "/api/fontgen/batch/start":
             return self._fontgen_batch_start()
         if path == "/api/fontgen/batch/stop":
