@@ -615,7 +615,12 @@ class Handler(SimpleHTTPRequestHandler):
             have = {r["char"] for r in rows}
             for ch in self._fontgen_std_chars(source):
                 if ch not in have:
-                    rows.append({"char": ch, "approved": False, "missing": True, "preview": f"/api/fontgen/preview?style=brush&ch={quote(ch)}"})
+                    has_img = (FONTGEN_DIR / "brush" / f"{ch}.png").exists()
+                    ov = over.get(ch, {})
+                    rows.append({"char": ch,
+                                 "approved": bool(ov.get("approved", False)),
+                                 "missing": not has_img,
+                                 "preview": f"/api/fontgen/preview?style=brush&ch={quote(ch)}"})
         return rows
 
     @staticmethod
