@@ -73,6 +73,7 @@ const stateCache = new Map();
 let batchTimers = {hand: null, brush: null};
 let failedChars = {hand: new Set(), brush: new Set()};
 let failedCounts = {hand: 0, brush: 0};
+let building = false;
 const $ = s => document.querySelector(s);
 
 function setStatus(t, color) { $("#status").textContent = t; $("#status").style.color = color || "var(--muted)"; }
@@ -101,7 +102,7 @@ async function load(styleName) {
     setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
     refreshBatchControls();
     const s = batchState[style];
-    if (s && s.job && s.job.id) renderJobStatus(s.job);
+    if (!building && s && s.job && s.job.id) renderJobStatus(s.job);
   };
   const cached = stateCache.get(key);
   if (cached) {
@@ -252,7 +253,7 @@ async function pollJob(jobId, jobStyle) {
     if (jobStyle === style) {
       syncFailedClasses();
       if (j.style === style) applyJobItems(j.items || []);
-      renderJobStatus(j);
+      if (!building) renderJobStatus(j);
       refreshBatchControls();
     }
     if (s.running) {
@@ -360,8 +361,7 @@ $("#btnResume").addEventListener("click", resumeBatch);
 
 $("#btnBuild").addEventListener("click", async () => {
   const fmt = style === "hand" ? $("#format").value : "ttf";
-  const charset = $("#charset").value;
-  const btn = $("#btnBuild"); btn.disabled = true; btn.textContent = "构建中…";
+  const btn = $("#btnBuild"); btn.disabled = true; btn.textContent = "构建中…"; building = true;
   setStatus("正在构建字体，字多时需要一点时间…");
   $("#result").innerHTML = "";
   try {
@@ -371,7 +371,7 @@ $("#btnBuild").addEventListener("click", async () => {
     $("#result").innerHTML = `<a href="${j.download}">下载 ${j.file}</a> · ${j.glyphs} 个字形`;
     setStatus(`构建完成：${j.glyphs} 个字形`, "var(--ok)");
   } catch (err) { setStatus("构建失败：" + err.message, "var(--bad)"); }
-  finally { btn.disabled = false; btn.textContent = "生成字体"; }
+  finally { building = false; btn.disabled = false; btn.textContent = "生成字体"; }
 });
 
 $("#tabHand").onclick = () => load("hand");
