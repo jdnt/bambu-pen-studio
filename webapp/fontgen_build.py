@@ -126,10 +126,12 @@ def build_ttf(glyphs, out, style="hand"):
     fb.setupCharacterMap(cmap)
     fb.setupGlyf(glyf)
     fb.setupHorizontalMetrics(hmtx)
-    fb.setupHorizontalHeader(ascent=880, descent=-120, lineGap=0)
+    # Use the full em box for vertical metrics so a glyph centered at
+    # (500,500) is also centered inside the Windows line box.
+    fb.setupHorizontalHeader(ascent=UPM, descent=0, lineGap=0)
     family = "MyBrush" if style == "brush" else "MyHand"
     fb.setupNameTable({"familyName": family, "styleName": "Regular", "uniqueFontIdentifier": f"{family} Regular", "fullName": f"{family} Regular", "psName": f"{family}-Regular", "version": "Version 1.0"})
-    fb.setupOS2(sTypoAscender=880, sTypoDescender=-120, usWinAscent=880, usWinDescent=120)
+    fb.setupOS2(sTypoAscender=UPM, sTypoDescender=0, usWinAscent=UPM, usWinDescent=0)
     fb.setupPost()
     fb.save(out)
     return len(glyph_order) - 1
