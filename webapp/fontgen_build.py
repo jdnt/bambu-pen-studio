@@ -90,9 +90,11 @@ def build_ttf(glyphs, out, style="hand"):
         if not contours:
             continue
         name = glyph_name(ch)
-        glyf[name] = draw_tt_glyph(contours)
+        g = draw_tt_glyph(contours)
+        glyf[name] = g
         adv = 500 if ch in PUNCT else UPM
-        hmtx[name] = (adv, 0)
+        xmin = min(pt[0] for pts, _hole in contours for pt in pts)
+        hmtx[name] = (adv, int(xmin))
         cmap[ord(ch)] = name
         glyph_order.append(name)
     fb = FontBuilder(UPM, isTTF=True)
