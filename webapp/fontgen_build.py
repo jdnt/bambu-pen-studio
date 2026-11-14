@@ -68,6 +68,7 @@ def build_ttf(glyphs, out, style="hand"):
     glyf = {".notdef": TTGlyphPen(None).glyph()}
     hmtx = {".notdef": (UPM, 0)}
     seen = set()
+    built = []  # (char, contours, advance)
     for g in glyphs:
         ch = g["char"]
         if ch in seen or len(ch) != 1:
@@ -89,14 +90,31 @@ def build_ttf(glyphs, out, style="hand"):
         contours = contours_from_mask(mask)
         if not contours:
             continue
-        name = glyph_name(ch)
-        g = draw_tt_glyph(contours)
-        glyf[name] = g
         adv = 500 if ch in PUNCT else UPM
-        xmin = min(pt[0] for pts, _hole in contours for pt in pts)
-        hmtx[name] = (adv, int(xmin))
-        cmap[ord(ch)] = name
-        glyph_order.append(name)
+        built.append((ch, contours, adv))
+
+    # Global (not per-glyph) scale: largest glyph reaches 95% of the em.
+    if built:
+        xs = [pt[0] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
+        ys = [pt[1] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
+        minx, maxx = min(xs), max(xs)
+        miny, maxy = min(ys), max(ys)
+        span = max(maxx - minx, maxy - miny, 1)
+        scale = (UPM * 0.95) / span
+        cx = (minx + maxx) / 2.0
+        cy = (miny + maxy) / 2.0
+        for ch, contours, adv in built:
+            scaled = []
+            for pts, hole in contours:
+                sp = [(500.0 + (float(x) - cx) * scale, 500.0 + (float(y) - cy) * scale) for x, y in pts]
+                scaled.append((sp, hole))
+            name = glyph_name(ch)
+            glyf[name] = draw_tt_glyph(scaled)
+            xmin = min(pt[0] for pts, _hole in scaled for pt in pts)
+            hmtx[name] = (adv, int(round(xmin)))
+            cmap[ord(ch)] = name
+            glyph_order.append(name)
+
     fb = FontBuilder(UPM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
     fb.setupCharacterMap(cmap)
