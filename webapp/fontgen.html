@@ -99,7 +99,7 @@ async function load(styleName) {
   const key = `${style}|${source}`;
   const showLoaded = () => {
     const have = all.filter(x => x.preview && !x.missing).length;
-    setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
+    if (!building) setStatus(`${style === "hand" ? "手写体" : "毛笔"} ${all.length} 字 · 已有 ${have} · 缺 ${all.length - have}`);
     refreshBatchControls();
     const s = batchState[style];
     if (!building && s && s.job && s.job.id) renderJobStatus(s.job);
@@ -109,7 +109,7 @@ async function load(styleName) {
     all = cached; page = 0; applyFilter(); showLoaded();
     return;
   }
-  setStatus("加载中…");
+  if (!building) setStatus("加载中…");
   const r = await fetch(`/api/fontgen/state?style=${style}&source=${source}`);
   const j = await r.json();
   if (seq !== loadSeq) return;
@@ -374,8 +374,8 @@ $("#btnBuild").addEventListener("click", async () => {
   finally { building = false; btn.disabled = false; btn.textContent = "生成字体"; }
 });
 
-$("#tabHand").onclick = () => load("hand");
-$("#tabBrush").onclick = () => load("brush");
+$("#tabHand").onclick = () => { localStorage.setItem("fontgenTab", "hand"); load("hand"); };
+$("#tabBrush").onclick = () => { localStorage.setItem("fontgenTab", "brush"); load("brush"); };
 $("#btnReload").onclick = () => load(style);
 $("#search").addEventListener("input", applyFilter);
 $("#source").addEventListener("change", () => { load(style).then(() => preloadState(style === "hand" ? "brush" : "hand")); });
@@ -383,10 +383,11 @@ $("#prev").onclick = () => { if (page > 0) { page--; render(); } };
 $("#next").onclick = () => { const pages = Math.max(1, Math.ceil(filtered.length / PAGE)); if (page + 1 < pages) { page++; render(); } };
 const _oldJob = localStorage.getItem("fontgenJob");
 if (_oldJob && !localStorage.getItem("fontgenJob:hand")) localStorage.setItem("fontgenJob:hand", _oldJob);
-load("hand").then(() => {
+const initialTab = localStorage.getItem("fontgenTab") === "brush" ? "brush" : "hand";
+load(initialTab).then(() => {
   refreshBatchControls();
   pollStoredJobs();
-  preloadState("brush");
+  preloadState(initialTab === "hand" ? "brush" : "hand");
 });
 </script>
 </body>
