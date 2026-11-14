@@ -928,7 +928,13 @@ class Handler(SimpleHTTPRequestHandler):
                         img = FONTGEN_DIR / "brush" / f"{ch}.png"
                         if not img.exists() or over.get(ch, {}).get("approved") is False: continue
                         target = cc.convert(ch) if cc else ch
-                        glyphs.append({"char": target, "image": str(img)})
+                        if charset == "both":
+                            glyphs.append({"char": ch, "image": str(img)})
+                            if target != ch:
+                                timg = FONTGEN_DIR / "brush" / f"{target}.png"
+                                glyphs.append({"char": target, "image": str(timg if timg.exists() else img)})
+                        else:
+                            glyphs.append({"char": target, "image": str(img)})
             # dedupe target chars
             seen = set(); uniq = []
             for g in glyphs:
