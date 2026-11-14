@@ -90,23 +90,29 @@ def build_ttf(glyphs, out, style="hand"):
         contours = contours_from_mask(mask)
         if not contours:
             continue
+        # Step 1: center THIS glyph in its own em box.
+        xs = [pt[0] for pts, _hole in contours for pt in pts]
+        ys = [pt[1] for pts, _hole in contours for pt in pts]
+        gx = (min(xs) + max(xs)) / 2.0
+        gy = (min(ys) + max(ys)) / 2.0
+        centered = []
+        for pts, hole in contours:
+            cp = [(500.0 + (float(x) - gx), 500.0 + (float(y) - gy)) for x, y in pts]
+            centered.append((cp, hole))
         adv = 500 if ch in PUNCT else UPM
-        built.append((ch, contours, adv))
+        built.append((ch, centered, adv))
 
-    # Global (not per-glyph) scale: largest glyph reaches 95% of the em.
+    # Step 2: one global uniform scale, applied after centering.
+    # The largest centered glyph reaches 95% of the em.
     if built:
         xs = [pt[0] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
         ys = [pt[1] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
-        minx, maxx = min(xs), max(xs)
-        miny, maxy = min(ys), max(ys)
-        span = max(maxx - minx, maxy - miny, 1)
+        span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
         scale = (UPM * 0.95) / span
-        cx = (minx + maxx) / 2.0
-        cy = (miny + maxy) / 2.0
         for ch, contours, adv in built:
             scaled = []
             for pts, hole in contours:
-                sp = [(500.0 + (float(x) - cx) * scale, 500.0 + (float(y) - cy) * scale) for x, y in pts]
+                sp = [(500.0 + (float(x) - 500.0) * scale, 500.0 + (float(y) - 500.0) * scale) for x, y in pts]
                 scaled.append((sp, hole))
             name = glyph_name(ch)
             glyf[name] = draw_tt_glyph(scaled)
