@@ -573,6 +573,10 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 pass
             return chars
+        if source == "cjk":
+            for cp in range(0x4E00, 0xA000):
+                add(chr(cp))
+            return chars
         if source == "rare":
             try:
                 for ch in FONTGEN_RARE_FILE.read_text(encoding="utf-8"):
@@ -609,7 +613,7 @@ class Handler(SimpleHTTPRequestHandler):
         if style == "hand":
             main = self._load_state()
             chars = list(main.get("chars", []))
-            if source in ("gb2312", "big5", "both"):
+            if source in ("gb2312", "big5", "both", "cjk", "rare"):
                 std = self._fontgen_std_chars(source)
                 chars = list(dict.fromkeys(std + chars))
             main_strokes = main.get("strokes", {})
@@ -626,7 +630,7 @@ class Handler(SimpleHTTPRequestHandler):
             rows.append({"char": ch, "approved": bool(over.get(ch, {}).get("approved", True)),
                          "missing": not ((FONTGEN_DIR / "brush" / f"{ch}.png").exists() or crop_ok),
                          "preview": f"/api/fontgen/preview?style=brush&ch={quote(ch)}"})
-        if source in ("gb2312", "big5", "both"):
+        if source in ("gb2312", "big5", "both", "cjk", "rare"):
             have = {r["char"] for r in rows}
             for ch in self._fontgen_std_chars(source):
                 if ch not in have:
@@ -765,6 +769,14 @@ class Handler(SimpleHTTPRequestHandler):
                 if j.get("status") in ("running", "stopping") and j.get("style") == style:
                     return self._json(409, {"ok": False, "error": f"{style} 已有批量任务在运行", "job": j.get("id")})
             chars = [x["char"] for x in self._fontgen_chars(style, source)]
+            if source == "cjk":
+                if style == "brush":
+                    chars = [ch for ch in chars if not (FONTGEN_DIR / "brush" / f"{ch}.png").exists()]
+                else:
+                    main = self._load_state()
+                    over = self._fontgen_load().get("hand", {})
+                    main_strokes = main.get("strokes", {})
+                    chars = [ch for ch in chars if not (over.get(ch, {}).get("strokes") or main_strokes.get(ch))]
             job = {"id": time.strftime("%Y%m%d-%H%M%S"), "style": style, "source": source,
                    "chars": chars, "index": 0, "done": 0, "failed": 0, "failed_chars": [],
                    "status": "running", "current": "", "started": time.time(), "updated": time.time(), "items": []}
@@ -899,7 +911,7 @@ class Handler(SimpleHTTPRequestHandler):
             if style == "hand":
                 main = self._load_state()
                 chars = list(main.get("chars", []))
-                if source in ("gb2312", "big5", "both"):
+                if source in ("gb2312", "big5", "both", "cjk", "rare"):
                     chars = list(dict.fromkeys(self._fontgen_std_chars(source) + chars))
                 for ch in chars:
                     if over.get(ch, {}).get("approved") is False: continue
@@ -938,7 +950,7 @@ class Handler(SimpleHTTPRequestHandler):
             style = payload.get("style", "hand")
             source = payload.get("source", "mine")
             # output follows selected charset automatically
-            charset = "t" if source == "big5" else ("both" if source == "both" else ("rare" if source == "rare" else "s"))
+            charset = "t" if source == "big5" else ("both" if source == "both" else ("cjk" if source == "cjk" else ("rare" if source == "rare" else "s")))
             fmt = "single" if payload.get("format") == "single" and style == "hand" else "ttf"
             size_mode = payload.get("size_mode", "balanced")
         except Exception as e:
@@ -949,7 +961,7 @@ class Handler(SimpleHTTPRequestHandler):
             st = self._load_state(); fst = self._fontgen_load(); over = fst.get(style, {})
             glyphs = []
             source_chars = list(st.get("chars", []))
-            if source in ("gb2312", "big5", "both"):
+            if source in ("gb2312", "big5", "both", "cjk", "rare"):
                 source_chars = list(dict.fromkeys(self._fontgen_std_chars(source) + source_chars))
             if style == "hand":
                 for ch in source_chars:
@@ -985,7 +997,7 @@ class Handler(SimpleHTTPRequestHandler):
                             glyphs.append({"char": target, "image": str(img)})
                     else:
                         glyphs.append({"char": target, "image": str(img)})
-                if source in ("gb2312", "big5", "both", "rare"):
+                if source in ("gb2312", "big5", "both", "cjk", "rare"):
                     for ch in self._fontgen_std_chars(source):
                         if ch in have or ch in self._fontgen_punct(): continue
                         img = FONTGEN_DIR / "brush" / f"{ch}.png"
