@@ -64,6 +64,7 @@ FONTGEN_DIR = DATA_DIR.parent / "fontgen"
 FONTGEN_STATE = FONTGEN_DIR / "state.json"
 FONTGEN_BUILD = WEB_DIR / "fontgen_build.py"
 FONTGEN_JOBS_DIR = FONTGEN_DIR / "jobs"
+FONTGEN_RARE_FILE = FONTGEN_DIR / "rare_chars.txt"
 FONTGEN_JOBS = {}
 FONTGEN_JOB_LOCK = threading.Lock()
 FONT1_LOCK = threading.Lock()
@@ -565,6 +566,20 @@ class Handler(SimpleHTTPRequestHandler):
                 t = cc.convert(ch)
                 if t != ch:
                     add(t)
+            try:
+                for ch in FONTGEN_RARE_FILE.read_text(encoding="utf-8"):
+                    if "\u4e00" <= ch <= "\u9fff":
+                        add(ch)
+            except Exception:
+                pass
+            return chars
+        if source == "rare":
+            try:
+                for ch in FONTGEN_RARE_FILE.read_text(encoding="utf-8"):
+                    if "\u4e00" <= ch <= "\u9fff":
+                        add(ch)
+            except Exception:
+                pass
             return chars
         if source == "gb2312":
             for b1 in range(0xB0, 0xF8):
@@ -923,7 +938,7 @@ class Handler(SimpleHTTPRequestHandler):
             style = payload.get("style", "hand")
             source = payload.get("source", "mine")
             # output follows selected charset automatically
-            charset = "t" if source == "big5" else ("both" if source == "both" else "s")
+            charset = "t" if source == "big5" else ("both" if source == "both" else ("rare" if source == "rare" else "s"))
             fmt = "single" if payload.get("format") == "single" and style == "hand" else "ttf"
             size_mode = payload.get("size_mode", "balanced")
         except Exception as e:
@@ -970,7 +985,7 @@ class Handler(SimpleHTTPRequestHandler):
                             glyphs.append({"char": target, "image": str(img)})
                     else:
                         glyphs.append({"char": target, "image": str(img)})
-                if source in ("gb2312", "big5", "both"):
+                if source in ("gb2312", "big5", "both", "rare"):
                     for ch in self._fontgen_std_chars(source):
                         if ch in have or ch in self._fontgen_punct(): continue
                         img = FONTGEN_DIR / "brush" / f"{ch}.png"
