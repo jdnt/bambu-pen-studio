@@ -54,6 +54,11 @@ main{max-width:1280px;margin:0 auto;padding:16px}
     </select></label>
     <label id="formatWrap">输出 <select id="format"><option value="ttf">标准 TTF（Word 可用）</option><option value="single">单线 SVG 包</option></select></label>
     <label>搜索 <input id="search" placeholder="字或页码"></label>
+    <label>字号 <select id="sizeMode">
+      <option value="balanced">均衡统一</option>
+      <option value="aggressive">强统一</option>
+      <option value="off">关闭（全局 95%）</option>
+    </select></label>
     <button id="btnLargest" class="ghost">最大字</button>
     <button id="btnAll">一键全部生成</button>
     <button id="btnAllStop" class="ghost" hidden>停止</button>
@@ -390,7 +395,7 @@ $("#btnBuild").addEventListener("click", async () => {
   $("#result").innerHTML = "";
   try {
     const source = $("#source").value;
-    const r = await fetch("/api/fontgen/build", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source,format:fmt})});
+    const r = await fetch("/api/fontgen/build", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({style,source,format:fmt,size_mode:$("#sizeMode").value})});
     const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error || r.status);
     $("#result").innerHTML = `<a href="${j.download}">下载 ${j.file}</a> · ${j.glyphs} 个字形`;
     setStatus(`构建完成：${j.glyphs} 个字形`, "var(--ok)");

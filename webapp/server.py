@@ -925,6 +925,7 @@ class Handler(SimpleHTTPRequestHandler):
             # output follows selected charset automatically
             charset = "t" if source == "big5" else ("both" if source == "both" else "s")
             fmt = "single" if payload.get("format") == "single" and style == "hand" else "ttf"
+            size_mode = payload.get("size_mode", "balanced")
         except Exception as e:
             return self._json(400, {"ok": False, "error": str(e)})
         try:
@@ -993,7 +994,13 @@ class Handler(SimpleHTTPRequestHandler):
             ext = "zip" if fmt == "single" else "ttf"
             name = f"myhand_{style}_{charset}.{ext}"
             out = FONTGEN_DIR / name
-            inp = {"style": style, "charset": charset, "format": fmt, "out": str(out), "glyphs": uniq}
+            profiles = {
+                "balanced": {"mode":"balanced","target":0.80,"grow":1.18,"shrink":0.85,"wide":1.25,"tall":0.80},
+                "aggressive": {"mode":"balanced","target":0.82,"grow":1.25,"shrink":0.80,"wide":1.25,"tall":0.80},
+                "off": {"mode":"off"},
+            }
+            inp = {"style": style, "charset": charset, "format": fmt, "out": str(out), "glyphs": uniq,
+                   "normalize": profiles.get(size_mode, profiles["balanced"])}
             ip = FONTGEN_DIR / "build_input.json"
             ip.write_text(json.dumps(inp, ensure_ascii=False), encoding="utf-8")
             proc = subprocess.run([str(Path("/root/venvs/fontai/bin/python")), str(FONTGEN_BUILD), str(ip)], capture_output=True, text=True, timeout=600)

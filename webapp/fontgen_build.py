@@ -62,7 +62,7 @@ def draw_tt_glyph(contours, advance=UPM):
         pen.closePath()
     return pen.glyph()
 
-def build_ttf(glyphs, out, style="hand"):
+def build_ttf(glyphs, out, style="hand", profile=None):
     glyph_order = [".notdef"]
     cmap = {}
     glyf = {".notdef": TTGlyphPen(None).glyph()}
@@ -102,24 +102,46 @@ def build_ttf(glyphs, out, style="hand"):
         adv = 500 if ch in PUNCT else UPM
         built.append((ch, centered, adv))
 
-    # Step 2: one global uniform scale, applied after centering.
-    # The largest centered glyph reaches 95% of the em.
+    # Step 2: size normalization.
+    # "off" keeps one global 95% scale; otherwise each glyph gets a bounded,
+    # orientation-aware scale so small glyphs grow a little instead of all
+    # being forced to the same em size.
     if built:
-        xs = [pt[0] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
-        ys = [pt[1] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
-        span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
-        scale = (UPM * 0.95) / span
-        for ch, contours, adv in built:
-            scaled = []
-            for pts, hole in contours:
-                sp = [(500.0 + (float(x) - 500.0) * scale, 500.0 + (float(y) - 500.0) * scale) for x, y in pts]
-                scaled.append((sp, hole))
-            name = glyph_name(ch)
-            glyf[name] = draw_tt_glyph(scaled)
-            xmin = min(pt[0] for pts, _hole in scaled for pt in pts)
-            hmtx[name] = (adv, int(round(xmin)))
-            cmap[ord(ch)] = name
-            glyph_order.append(name)
+        prof = profile or {}
+        mode = prof.get("mode", "balanced")
+        if mode == "off":
+            xs = [pt[0] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
+            ys = [pt[1] for _ch, cs, _adv in built for pts, _hole in cs for pt in pts]
+            span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
+            scale = (UPM * 0.95) / span
+            for ch, contours, adv in built:
+                scaled = [(  [(500.0 + (float(x) - 500.0) * scale, 500.0 + (float(y) - 500.0) * scale) for x, y in pts], hole) for pts, hole in contours]
+                name = glyph_name(ch); glyf[name] = draw_tt_glyph(scaled)
+                xmin = min(pt[0] for pts, _hole in scaled for pt in pts)
+                hmtx[name] = (adv, int(round(xmin))); cmap[ord(ch)] = name; glyph_order.append(name)
+        else:
+            target = float(prof.get("target", 0.80))
+            grow = float(prof.get("grow", 1.18))
+            shrink = float(prof.get("shrink", 0.85))
+            wide = float(prof.get("wide", 1.25))
+            tall = float(prof.get("tall", 0.80))
+            for ch, contours, adv in built:
+                xs = [pt[0] for pts, _hole in contours for pt in pts]
+                ys = [pt[1] for pts, _hole in contours for pt in pts]
+                w = max(1.0, max(xs) - min(xs)); h = max(1.0, max(ys) - min(ys))
+                ratio = w / h
+                if ratio > wide:
+                    s = (UPM * 0.82) / w
+                elif ratio < tall:
+                    s = (UPM * 0.82) / h
+                else:
+                    s = (UPM * target) / max(w, h)
+                s = max(shrink, min(grow, s))
+                s = min(s, (UPM * 0.95) / max(w, h))
+                scaled = [([(500.0 + (float(x) - 500.0) * s, 500.0 + (float(y) - 500.0) * s) for x, y in pts], hole) for pts, hole in contours]
+                name = glyph_name(ch); glyf[name] = draw_tt_glyph(scaled)
+                xmin = min(pt[0] for pts, _hole in scaled for pt in pts)
+                hmtx[name] = (adv, int(round(xmin))); cmap[ord(ch)] = name; glyph_order.append(name)
 
     fb = FontBuilder(UPM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
@@ -172,5 +194,5 @@ if __name__ == "__main__":
     if a.get("format") == "single":
         n = build_single(a["glyphs"], out)
     else:
-        n = build_ttf(a["glyphs"], out, a.get("style", "hand"))
+        n = build_ttf(a["glyphs"], out, a.get("style", "hand"), a.get("normalize"))
     print(json.dumps({"ok": True, "glyphs": n, "out": out}, ensure_ascii=False))
